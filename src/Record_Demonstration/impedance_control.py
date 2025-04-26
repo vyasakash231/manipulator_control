@@ -130,7 +130,7 @@ class CartesianImpedanceControl(Robot):
         return X_dot.reshape(-1)   # in [m/s, rad/s]
     
     @property
-    def velocit_error(self):
+    def velocity_error(self):
         # Combine into a single 6D velocity vector
         desired_velocity = np.zeros(6)
         desired_velocity[:3] = self.desired_linear_vel
@@ -251,7 +251,7 @@ class CartesianImpedanceControl(Robot):
                 error[3:] = self.orientation_error
 
                 # define EE-Velocitt error in task-space
-                velocity_error = self.velocit_error
+                velocity_error = self.velocity_error
 
                 # Cartesian PD control with damping
                 self.impedance_force = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]

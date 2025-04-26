@@ -9,15 +9,25 @@ from common_utils import Robot, RealTimePlot
 from scipy.spatial.transform import Rotation
 
 class OSC(Robot):
-    def __init__(self):
+    def __init__(self, file_name='demo'):
         self.shutdown_flag = False  
+        self.file_name = file_name
 
         # Initialize the plotter in the main thread
         self.plotter = RealTimePlot()
         # self.plotter.setup_plots_1()
 
-        self.Kp = np.diag([50.0, 50.0, 50.0, 15.0, 15.0, 15.0])
-        self.Kv = 1.5 * np.sqrt(self.Kp)
+        # Setup Gain Values
+        translational_gain = 250.0
+        rotational_gain = 400.0
+
+        self.Kp = np.eye(6)
+        self.Kp[:3, :3] *= translational_gain
+        self.Kp[3:, 3:] *= rotational_gain
+        
+        self.Kv = np.eye(6)
+        self.Kv[:3, :3] *= 1.5 * np.sqrt(translational_gain)
+        self.Kv[3:, 3:] *= 1.0 * np.sqrt(rotational_gain)
 
         self.Ko = np.diag([0.08, 0.08, 0.08, 0.08, 0.08, 0.08])
 
@@ -32,6 +42,24 @@ class OSC(Robot):
 
         super().__init__()
 
+    def load_demo(self, name='demo'):
+        curr_dir=os.getcwd()
+        data = np.load(curr_dir+ '/data/' + str(name) + '.npz')
+        self.position_demo = 1000 * data['traj']   # shape: (N, 3), convert from m to mm
+        self.orientation_demo = data['ori']   # shape: (N, 4)
+        self.linear_velocity_demo = data['vel']   # shape: (N, 3), in m/s
+        self.angular_velocity_demo = data['omega']   # shape: (N, 3), in rad/s
+        self.N = self.position_demo.shape[0]   # no of sample points
+
+    def store_data(self):
+        pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
+        orient = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_trajectory = np.vstack((self.record_trajectory, pos))  # shape: (N, 3) 
+        self.record_orientation = np.vstack((self.record_orientation, orient))  # shape: (N, 4)
+
+        self.record_motor_torque = np.vstack((self.record_motor_torque, self.Robot_RT_State.actual_motor_torque))  # shape: (N, 6) 
+        self.record_joint_torque = np.vstack((self.record_joint_torque, self.Robot_RT_State.actual_joint_torque))  # shape: (N, 6)
+
     def plot_data(self):
         try:
             # self.plotter.update_data_1(self.data.actual_motor_torque, self.data.raw_force_torque, self.data.actual_joint_torque, self.data.raw_joint_torque)
@@ -39,23 +67,47 @@ class OSC(Robot):
         except Exception as e:
             rospy.logwarn(f"Error adding plot data: {e}")
 
-    def start(self, position, velocity):
+    def start(self):
         # Set equilibrium point to current state
-        self.position_des = position   # (x, y, z) in mm
-        self.orientation_des = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion  
-        self.velocity_des = velocity   # [Vx, Vy, Vz, ωx, ωy, ωz] in [m/s, rad/s]
+        # self.position_des = np.array([200, 0, 750])   # (x, y, z) in mm
+        # self.orientation_des = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())   # Convert angles from Euler ZYZ (in degrees) to quaternion  
+        
+        self.linear_vel_des = None
+        self.angular_vel_des = None
+
+        # for plotting
+        self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]   # in m
+        self.record_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_motor_torque = self.Robot_RT_State.actual_motor_torque  # in Nm
+        self.record_joint_torque = self.Robot_RT_State.actual_joint_torque  # in Nm
+
+        # load demo trajectory
+        self.load_demo(name=self.file_name)
 
     @property
-    def velocity_current(self):
+    def current_velocity(self):
         # EE_dot = self.Robot_RT_State.actual_tcp_velocity   # [Vx, Vy, Vz, ωx, ωy, ωz]
-        # X_dot = np.zeros(6)
+        # X_dot = np.zeros(self.n)
         # X_dot[:3] = 0.001 * EE_dot[:3]   # convert from mm/s to m/s
         # X_dot[3:] = 0.0174532925 * EE_dot[3:]  # convert from deg/s to rad/s  
         # return X_dot
 
         self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs  # convert from deg/s to rad/s
         X_dot = self.J @ self.q_dot[:,np.newaxis]
-        return X_dot.reshape(-1)
+        return X_dot.reshape(-1)   # [Vx, Vy, Vz, ωx, ωy, ωz] in [m/s, rad/s]
+    
+    @property
+    def velocity_error(self):
+        # Combine into a single 6D velocity vector
+        if self.linear_vel_des is None and self.angular_vel_des is None:
+            return None
+        else:
+            desired_velocity = np.zeros(self.n)  
+            desired_velocity[:3] = self.linear_vel_des   #  in m/s
+            desired_velocity[3:] = self.angular_vel_des   # in rad/s
+
+            # Calculate velocity error (current - desired)
+            return self.current_velocity - desired_velocity
     
     @property
     def position_error(self):
@@ -86,10 +138,10 @@ class OSC(Robot):
         rot_error = current_rotation_matrix @ rot_error
         return rot_error.reshape(-1)
         
-    def Mx(self, Mq, J):
+    def Mx(self, Mq):
         # Mq_inv = np.linalg.inv(Mq)  # This was calculated based on LU-Decomposition which is numerically not very stable
         Mq_inv = self._svd_solve(Mq)  # SVD is more numerically stable when dealing with matrices that might be ill-conditioned
-        Mx_inv = J @ (Mq_inv @ J.T)
+        Mx_inv = self.J @ (Mq_inv @ self.J.T)
         if abs(np.linalg.det(Mx_inv)) >= 1e-4:
             Mx = self._svd_solve(Mx_inv)
         else:
@@ -126,42 +178,68 @@ class OSC(Robot):
         term_1 = np.dot(self.Ko, (motor_torque - joint_torque - self.tau_f)) * 0.005
         self.tau_f = self.tau_f + term_1
 
+    @property
     def control_input(self):
         # define EE-Position & Orientation error in task-space
-        error = np.zeros((self.n, 1))
-        error[:3,0] = self.position_error
-        error[3:,0] = self.orientation_error
+        error = np.zeros(self.n)
+        error[:3] = self.position_error
+        error[3:] = self.orientation_error
                 
-        if np.all(self.velocity_des == 0.0):
-            return self.Kp @ error
-        else:
-            error_dot = (self.velocity_current - self.velocity_des)[:, np.newaxis]  # velocity_current -> EE-velocity in task-space [Vx, Vy, Vz, ωx, ωy, ωz] in [m/s, rad/s]
-            return self.Kp @ error + self.Kv @ error_dot
+        if self.velocity_error is None:
+            return self.Kp @ error[:, np.newaxis]
+        else:                
+            error_dot = self.velocity_error[:, np.newaxis]
+            return self.Kp @ error[:, np.newaxis] + self.Kv @ error_dot
 
-    def run_controller(self, position, velocity):
-        self.start(position, velocity)
+    def run_controller(self):
+        self.start()
         tau_task = np.zeros((self.n,1))
 
         rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
+
+        # Calculate time step between trajectory points (in seconds)
+        traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
         
+        # Track start time for trajectory indexing
+        start_time = rospy.Time.now().to_sec()
+
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
+                # Calculate elapsed time and determine trajectory index
+                current_time = rospy.Time.now().to_sec()
+                elapsed_time = current_time - start_time
+                current_idx = int(elapsed_time / traj_dt)
+                
+                # Ensure index is within bounds
+                if current_idx >= self.N:
+                    current_idx = self.N - 1
+                    if current_idx == self.N - 1 and np.linalg.norm(self.position_error)*1000 < 10.0:  # if error is less then 10mm break
+                        rospy.loginfo("Trajectory complete and position error < 10mm")
+                        break
+
+                # Update desired position and orientation
+                self.position_des = self.position_demo[current_idx,:]  # (x, y, z) in mm
+                self.orientation_des = self.orientation_demo[current_idx,:]
+
+                # Get desired velocity from recorded data
+                self.linear_vel_des = self.linear_velocity_demo[current_idx,:]  # Already in m/s
+                self.angular_vel_des = self.angular_velocity_demo[current_idx,:]  # Already in rad/s
+
                 # Find Jacobian matrix
-                J = self.Robot_RT_State.jacobian_matrix
+                self.J = self.Robot_RT_State.jacobian_matrix
 
                 # Find Inertia matrix in joint space
                 Mq = self.Robot_RT_State.mass_matrix
                 
                 # Compute control
-                Mx = self.Mx(Mq, J)
-                U = self.control_input()
+                Mx = self.Mx(Mq)
 
-                if np.all(self.velocity_des == 0.0):
+                if self.velocity_error is None:
                     # if there's no desired velocity in task space, compensate for velocity in joint space 
                     q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
-                    tau_task = - Mq @ (self.Kv @ q_dot[:,np.newaxis]) - J.T @ (Mx @ U)
+                    tau_task = - Mq @ (self.Kv @ q_dot[:,np.newaxis]) - self.J.T @ (Mx @ self.control_input)
                 else:
-                    tau_task = - J.T @ (Mx @ U)
+                    tau_task = - self.J.T @ (Mx @ self.control_input)
 
                 # compute gravitational torque in Nm
                 G_torque = self.Robot_RT_State.gravity_torque 
@@ -176,13 +254,14 @@ class OSC(Robot):
                 tau_d = self.saturate_torque(tau_d, self.tau_J_d)
 
                 writedata = TorqueRTStream()
-                writedata.tor = tau_d.tolist()
+                writedata.tor = tau_d.tolist()    # target motor torque [Nm]
                 writedata.time = 0.0
                 self.torque_publisher.publish(writedata)
 
                 self.tau_J_d = tau_d.copy()
 
-                print(self.Robot_RT_State.actual_tcp_position[:3])
+                # store actual data for plotting
+                self.store_data()
 
                 rate.sleep()
                 
@@ -191,8 +270,23 @@ class OSC(Robot):
         finally:
             self.cleanup()
 
+    def save(self, name='task_performed'):
+        curr_dir=os.getcwd()
+        np.savez(curr_dir + '/data/' + str(name) + '.npz',
+                traj=self.record_trajectory,
+                ori=self.record_orientation,
+                motor_torque=self.record_motor_torque,
+                joint_torque=self.record_joint_torque,
+                )
+
 
 if __name__ == "__main__":
+    # move to initial position first
+    p1= posj(0,25,110,0,45,0)  # posj(q1, q2, q3, q4, q5, q6) This function designates the joint space angle in degrees
+    movej(p1, vel=40, acc=20)
+
+    time.sleep(1.0)
+
     try:
         # Initialize ROS node first
         rospy.init_node('My_service_node')
@@ -202,9 +296,7 @@ if __name__ == "__main__":
         rospy.sleep(2.0)  # Give time for initialization
 
         # Start controller in a separate thread
-        Xd = np.array([200, 0, 750])  # in mm
-        Xd_dot = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])   # in [m/s, rad/s]
-        controller_thread = Thread(target=task.run_controller, args=(Xd, Xd_dot)) 
+        controller_thread = Thread(target=task.run_controller) 
         controller_thread.daemon = True
         controller_thread.start()
         
@@ -216,4 +308,5 @@ if __name__ == "__main__":
         pass
 
     finally:
-        plt.close('all')  # Clean up plots on exit
+        task.save()
+        # plt.close('all')  # Clean up plots on exit
