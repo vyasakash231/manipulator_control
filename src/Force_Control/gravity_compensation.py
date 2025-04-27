@@ -37,7 +37,7 @@ class GravityCompensation(Robot):
         F_E_E = self.filter.low_pass_filter_torque(np.array(self.Robot_RT_State.raw_force_torque))   # Wrench in EE frame
 
         EE_pose = np.array(self.Robot_RT_State.actual_tcp_position)   #  (x, y, z, a, b, c) in mm, deg
-        R_E_0 = self.euler2mat(EE_pose[3:])  # euler-angles in deg
+        R_E_0 = self._euler2mat(EE_pose[3:])  # euler-angles in deg
         F_E_0 = R_E_0 @ F_E_E[:3][:,np.newaxis] - Force_due_to_EE_weight 
         M_E_0 = R_E_0 @ F_E_E[3:][:,np.newaxis] + np.cross(0.001*EE_pose[:3], F_E_0.reshape(-1))[:, np.newaxis]
         ext_wrench = np.concatenate((F_E_0.reshape(-1), M_E_0.reshape(-1)))  # Wrench in Base frame
@@ -121,7 +121,7 @@ class GravityCompensation(Robot):
                 self.calc_friction_torque() #  estimate frictional torque in Nm
 
                 # position = self.Robot_RT_State.actual_tcp_position[:3].copy()    # (x, y, z) in mm
-                # orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
+                # orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
                 # q = 0.0174532925 * np.array(self.Robot_RT_State.actual_joint_position)   # convert from deg to rad
                 # pose,_,_ = self.kinematic_model.FK(q)

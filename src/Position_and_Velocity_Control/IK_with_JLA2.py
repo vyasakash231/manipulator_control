@@ -24,7 +24,7 @@ class Task_Space_Control(Robot):
     def current_pose(self):
         pose = np.zeros((self.n+1,1))
         pose[:3,0] = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]  # converting position from mm to m
-        pose[3:,0] = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion 
+        pose[3:,0] = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion 
         return pose[:3,[0]]    
 
     @property

@@ -6,9 +6,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from basic_import import *
 from common_utils import Robot
+from learn_dmp import PositionDMP, OrientationDMP
 from scipy.spatial.transform import Rotation
-from scipy.signal import butter, filtfilt
-from scipy.spatial.transform import Rotation, Slerp
+# from scipy.signal import butter, filtfilt
+# from scipy.spatial.transform import Rotation, Slerp
 
 
 class CartesianImpedanceControl(Robot):
@@ -40,64 +41,64 @@ class CartesianImpedanceControl(Robot):
         # self.gripper = data['grip']
         self.N = self.position_demo.shape[0]   # no of sample points
 
-        # Apply filtering for smoother trajectories
-        self.filter_trajectory()
+    #     # Apply filtering for smoother trajectories
+    #     self.filter_trajectory()
 
-    def filter_trajectory(self):
-        """
-        Apply filtering to position, orientation and velocity data to ensure smooth trajectory
-        """
-        # Filter parameters
-        fs = 25.0  # Sample frequency (Hz)
-        cutoff = 5.0  # Cutoff frequency (Hz) - adjust as needed
-        order = 2  # Filter order
+    # def filter_trajectory(self):
+    #     """
+    #     Apply filtering to position, orientation and velocity data to ensure smooth trajectory
+    #     """
+    #     # Filter parameters
+    #     fs = 25.0  # Sample frequency (Hz)
+    #     cutoff = 5.0  # Cutoff frequency (Hz) - adjust as needed
+    #     order = 2  # Filter order
         
-        # Create the filter
-        nyq = 0.5 * fs
-        normal_cutoff = cutoff / nyq
-        b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    #     # Create the filter
+    #     nyq = 0.5 * fs
+    #     normal_cutoff = cutoff / nyq
+    #     b, a = butter(order, normal_cutoff, btype='low', analog=False)
         
-        # Apply filter to position data (each axis separately)
-        filtered_position = np.zeros_like(self.position_demo)
-        for i in range(3):
-            filtered_position[:, i] = filtfilt(b, a, self.position_demo[:, i])
+    #     # Apply filter to position data (each axis separately)
+    #     filtered_position = np.zeros_like(self.position_demo)
+    #     for i in range(3):
+    #         filtered_position[:, i] = filtfilt(b, a, self.position_demo[:, i])
         
-        # Apply filter to linear velocity data
-        filtered_linear_vel = np.zeros_like(self.linear_velocity_demo)
-        for i in range(3):
-            filtered_linear_vel[:, i] = filtfilt(b, a, self.linear_velocity_demo[:, i])
+    #     # Apply filter to linear velocity data
+    #     filtered_linear_vel = np.zeros_like(self.linear_velocity_demo)
+    #     for i in range(3):
+    #         filtered_linear_vel[:, i] = filtfilt(b, a, self.linear_velocity_demo[:, i])
         
-        # Apply filter to angular velocity data
-        filtered_angular_vel = np.zeros_like(self.angular_velocity_demo)
-        for i in range(3):
-            filtered_angular_vel[:, i] = filtfilt(b, a, self.angular_velocity_demo[:, i])
+    #     # Apply filter to angular velocity data
+    #     filtered_angular_vel = np.zeros_like(self.angular_velocity_demo)
+    #     for i in range(3):
+    #         filtered_angular_vel[:, i] = filtfilt(b, a, self.angular_velocity_demo[:, i])
         
-        # Handle orientation (quaternions) - special care needed
-        # Simple filtering can break quaternion properties
-        filtered_orientation = np.zeros_like(self.orientation_demo)
-        filtered_orientation[0] = self.orientation_demo[0]  # Keep first quaternion as is
+    #     # Handle orientation (quaternions) - special care needed
+    #     # Simple filtering can break quaternion properties
+    #     filtered_orientation = np.zeros_like(self.orientation_demo)
+    #     filtered_orientation[0] = self.orientation_demo[0]  # Keep first quaternion as is
         
-        # Create rotation objects and times
-        original_rotations = Rotation.from_quat(self.orientation_demo)
-        times = np.arange(len(self.orientation_demo))
+    #     # Create rotation objects and times
+    #     original_rotations = Rotation.from_quat(self.orientation_demo)
+    #     times = np.arange(len(self.orientation_demo))
         
-        # Create Slerp object
-        slerp = Slerp(times, original_rotations)
+    #     # Create Slerp object
+    #     slerp = Slerp(times, original_rotations)
         
-        # Evaluate at the same times, but the interpolation has a smoothing effect
-        smoothed_rotations = slerp(times)
-        filtered_orientation = smoothed_rotations.as_quat()
+    #     # Evaluate at the same times, but the interpolation has a smoothing effect
+    #     smoothed_rotations = slerp(times)
+    #     filtered_orientation = smoothed_rotations.as_quat()
         
-        # Update trajectory data with filtered versions
-        self.position_demo = filtered_position
-        self.orientation_demo = filtered_orientation
-        self.linear_velocity_demo = filtered_linear_vel
-        self.angular_velocity_demo = filtered_angular_vel
-        print("Trajectory filtered for smoother motion")
+    #     # Update trajectory data with filtered versions
+    #     self.position_demo = filtered_position
+    #     self.orientation_demo = filtered_orientation
+    #     self.linear_velocity_demo = filtered_linear_vel
+    #     self.angular_velocity_demo = filtered_angular_vel
+    #     print("Trajectory filtered for smoother motion")
 
     def store_data(self):
         pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
-        orient = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
         self.record_trajectory = np.vstack((self.record_trajectory, pos))  # shape: (N, 3) 
         self.record_orientation = np.vstack((self.record_orientation, orient))  # shape: (N, 4)
 
@@ -112,11 +113,11 @@ class CartesianImpedanceControl(Robot):
 
         # define desired pose => [x, y, z] & [q1, q2, q3, q0]
         self.position_des_next = self.Robot_RT_State.actual_tcp_position[:3].copy()    # (x, y, z) in mm
-        self.orientation_des_next = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())    # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        self.orientation_des_next = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())    # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         # for plotting
         self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]   # in m
-        self.record_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
 
         self.record_motor_torque = self.Robot_RT_State.actual_motor_torque  # in Nm
         self.record_joint_torque = self.Robot_RT_State.actual_joint_torque  # in Nm
@@ -134,13 +135,15 @@ class CartesianImpedanceControl(Robot):
         # Combine into a single 6D velocity vector
         desired_velocity = np.zeros(6)
         desired_velocity[:3] = self.desired_linear_vel
-        desired_velocity[3:] = self.desired_angular_vel
+        # desired_velocity[3:] = self.desired_angular_vel
 
         # EE-velocity in task-space
         current_velocity = self.current_velocity
 
         # Calculate velocity error (current - desired)
-        return current_velocity - desired_velocity
+        error_dot = current_velocity - desired_velocity
+        error_dot[3:] = 0
+        return error_dot
 
     @property
     def position_error(self):
@@ -150,7 +153,7 @@ class CartesianImpedanceControl(Robot):
     
     @property
     def orientation_error(self):
-        current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         if np.dot(current_orientation, self.orientation_des_next) < 0.0:
             current_orientation = -current_orientation
@@ -279,6 +282,98 @@ class CartesianImpedanceControl(Robot):
 
                 rate.sleep()
                 
+        except rospy.ROSInterruptException:
+            pass
+        finally:
+            self.cleanup()
+
+    def run_dmp(self, K_trans, K_rot):
+        self.start()
+        self.set_compliance_parameters(K_trans, K_rot)
+        tau_task = np.zeros((6,1))
+        error = np.zeros(6)
+
+        rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
+
+        # Calculate time step between trajectory points (in seconds)
+        traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
+
+        # Start DMPS
+        dmp = PositionDMP(no_of_DMPs=3, no_of_basis_func=250, T=10, dt=traj_dt, K=10, alpha=2.0)
+
+        # learn Weights based on Demo
+        X_demo = 0.001 * self.position_demo.T   # demo position data of shape (3, N) in m
+        V_demo = self.linear_velocity_demo.T   # demo velocity data of shape (3, N) in m
+        dmp.learn_dynamics(X_des=X_demo, V_des=V_demo)
+        dmp.reset_state()
+
+        # Track start time for trajectory indexing
+        start_time = rospy.Time.now().to_sec()
+        X_goal = X_demo[:,[-1]]
+        gamma = 1
+        try:
+            while not rospy.is_shutdown() and not self.shutdown_flag:
+                # Calculate elapsed time and determine trajectory index
+                current_time = rospy.Time.now().to_sec()
+                elapsed_time = current_time - start_time
+                current_idx = int(elapsed_time / traj_dt)
+                
+                # Ensure index is within bounds
+                if current_idx >= self.N:
+                    current_idx = self.N - 1
+                    if current_idx == self.N - 1 and np.linalg.norm(self.position_error)*1000 < 10.0:  # if error is less then 10mm break
+                        rospy.loginfo("Trajectory complete and position error < 10mm")
+                        break
+
+                # perform DMP step -> Update desired position and orientation
+                X_dmp, dX_dmp = dmp.step(X_goal, gamma)
+                self.position_des_next, self.desired_linear_vel = X_dmp.reshape(-1), dX_dmp.reshape(-1)
+
+                print(self.position_des_next, self.desired_linear_vel)
+
+                # # Find Jacobian matrix
+                self.J = self.Robot_RT_State.jacobian_matrix
+
+                # define EE-Position & Orientation error in task-space
+                error[:3] = self.position_error
+                # error[3:] = self.orientation_error
+
+                # # define EE-Velocitt error in task-space
+                velocity_error = self.velocity_error
+
+                # # Cartesian PD control with damping
+                self.impedance_force = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]
+                tau_task = - self.J.T @ self.impedance_force
+                        
+                # # compute gravitational torque in Nm
+                G_torque = self.Robot_RT_State.gravity_torque 
+
+                # # estimate frictional torque in Nm
+                self.calc_friction_torque()
+
+                # # Compute desired torque
+                tau_d = tau_task + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis] 
+                
+                # Saturate torque to avoid limit breach
+                tau_d = self.saturate_torque(tau_d)
+                
+                writedata = TorqueRTStream()
+                writedata.tor = tau_d.tolist()   # target motor torque [Nm]
+                writedata.time = 0.0    # target time [sec]
+                self.torque_publisher.publish(writedata)
+
+                # # store actual data for plotting
+                # self.store_data()
+
+                """
+                If the plant/Robot state drifts away from the state of the DMPs, we have to slow down the execution speed of the 
+                DMP to allow the plant time to catch up. To do this we just have to multiply the DMP timestep dt with gamma
+                """
+                current_position = self.Robot_RT_State.actual_tcp_position[:3]   # (x, y, z) in mm
+                gamma = 1 / (1 + LA.norm(self.position_des_next - current_position))
+
+                rate.sleep()
+                break
         except rospy.ROSInterruptException:
             pass
         finally:

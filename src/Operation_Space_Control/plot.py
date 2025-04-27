@@ -66,7 +66,7 @@ class PlotData:
         self.joint_torque = data['joint_torque']   # shape: (N, 3), in Nm
 
         # Important to make quaternions continuous 
-        self.orientation = make_quat_continuity(self.orientation)
+        self.orientation = -make_quat_continuity(self.orientation)
 
         self.N = self.position.shape[0]   # no of sample points
 

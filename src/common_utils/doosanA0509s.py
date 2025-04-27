@@ -7,6 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 from basic_import import *
 from .robot_RT_state import RT_STATE
 from .robot_kinematic_model import Robot_KM
+from .utils import *
 
 class Robot(ABC):
     n = 6  # No of joints
@@ -190,178 +191,19 @@ class Robot(ABC):
         pass  
 
     def _svd_solve(self, A):
-        U, s, V_transp = np.linalg.svd(A)
-
-        # Option-1
-        S_inv = np.diag(s**-1)
-        
-        # Option-2, Handle small singular values
-        # s_inv = np.zeros_like(s)
-        # for i in range(len(s)):
-        #     if s[i] > threshold:
-        #         s_inv[i] = 1.0 / s[i]
-        #     else:
-        #         s_inv[i] = 0.0  # Or apply damping: s[i]/(s[i]^2 + lambda^2)
-        
-        # # Reconstruct inverse
-        # S_inv = np.zeros_like(M)
-        # for i in range(len(s)):
-        #     S_inv[i,i] = s_inv[i]
-
-        # A^-1 = V * S^-1 * U^T
-        A_inv = V_transp.T @ S_inv @ U.T   # V = V_transp.T
-        return A_inv
-
-    def euler2mat(self, euler_angles):  # euler_angles in degrees
-        """
-        Convert Euler ZYZ rotation angles to a 3D rotation matrix.
-        
-        Args:
-        z1_angle (float): First rotation angle around Z-axis in radians
-        y_angle (float): Rotation angle around Y-axis in radians
-        z2_angle (float): Second rotation angle around Z-axis in radians
-        
-        Returns:
-        numpy.ndarray: 3x3 rotation matrix
-        """
-        z1_angle, y_angle, z2_angle = np.radians(euler_angles)
-
-        # Rotation matrices for individual axes
-        Rz1 = np.array([
-            [math.cos(z1_angle), -math.sin(z1_angle), 0],
-            [math.sin(z1_angle), math.cos(z1_angle), 0],
-            [0, 0, 1]
-        ])
-        
-        Ry = np.array([
-            [math.cos(y_angle), 0, math.sin(y_angle)],
-            [0, 1, 0],
-            [-math.sin(y_angle), 0, math.cos(y_angle)]
-        ])
-        
-        Rz2 = np.array([
-            [math.cos(z2_angle), -math.sin(z2_angle), 0],
-            [math.sin(z2_angle), math.cos(z2_angle), 0],
-            [0, 0, 1]
-        ])
-        
-        # Combine rotations in ZYZ order
-        """
-        * The rotation order (Z1 * Y * Z2) is typically referred to as the "intrinsic" ZYZ rotation sequence
-        * The rotation order (Z2 * Y * Z1) is typically referred to as the "extrinsic" ZYZ rotation sequence
-
-        The key difference is that intrinsic rotations are performed relative to the object's current orientation, 
-        while extrinsic rotations are performed relative to the fixed global coordinate system.
-        """
-        R = Rz1 @ Ry @ Rz2
-        return R
+        return svd_solve(A)
     
-    def mat2quat(self, rmat):
-        M = np.asarray(rmat).astype(np.float32)[:3, :3]
-
-        m00 = M[0, 0]
-        m01 = M[0, 1]
-        m02 = M[0, 2]
-        m10 = M[1, 0]
-        m11 = M[1, 1]
-        m12 = M[1, 2]
-        m20 = M[2, 0]
-        m21 = M[2, 1]
-        m22 = M[2, 2]
-
-        # symmetric matrix K
-        K = np.array([
-                    [m00 - m11 - m22, np.float32(0.0), np.float32(0.0), np.float32(0.0)],
-                    [m01 + m10, m11 - m00 - m22, np.float32(0.0), np.float32(0.0)],
-                    [m02 + m20, m12 + m21, m22 - m00 - m11, np.float32(0.0)],
-                    [m21 - m12, m02 - m20, m10 - m01, m00 + m11 + m22],
-                    ])
-        K /= 3.0
-
-        # quaternion is Eigen vector of K that corresponds to largest eigenvalue
-        w, V = np.linalg.eigh(K)
-        inds = np.array([3, 0, 1, 2])
-        q1 = V[inds, np.argmax(w)]
-        if q1[0] < 0.0:
-            np.negative(q1, q1)
-        inds = np.array([1, 2, 3, 0])
-        return q1[inds]
+    def _euler2mat(self, euler_angles):
+        return euler2mat(euler_angles)
     
-    def eul2quat(self, euler_angles):
-        rmat = self.euler2mat(euler_angles)
+    def _mat2quat(self, M):
+        return mat2quat(M)
+    
+    def _eul2quat(self, euler_angles):
+        rmat = euler2mat(euler_angles)
         M = np.asarray(rmat).astype(np.float32)
-        q = self.mat2quat(M)
+        q = mat2quat(M)
         return q
-    
-    def unit_vector(self, data, axis=None, out=None):
-        """
-        Returns ndarray normalized by length, i.e. eucledian norm, along axis.
 
-        Args:
-            data (np.array): data to normalize
-            axis (None or int): If specified, determines specific axis along data to normalize
-            out (None or np.array): If specified, will store computation in this variable
-
-        Returns:
-            None or np.array: If @out is not specified, will return normalized vector. Otherwise, stores the output in @out
-        """
-        if out is None:
-            data = np.array(data, dtype=np.float32, copy=True)
-            if data.ndim == 1:
-                data /= sqrt(np.dot(data, data))
-                return data
-        else:
-            if out is not data:
-                out[:] = np.array(data, copy=False)
-            data = out
-        length = np.atleast_1d(np.sum(data * data, axis))
-        np.sqrt(length, length)
-        if axis is not None:
-            length = np.expand_dims(length, axis)
-        data /= length
-        if out is None:
-            return data
-    
-    def quat_slerp(self, quat0, quat1, fraction, shortestpath=True):
-        """
-        Return spherical linear interpolation between two quaternions.
-
-        Args:
-            quat0 (np.array): (x,y,z,w) quaternion startpoint
-            quat1 (np.array): (x,y,z,w) quaternion endpoint
-            fraction (float): fraction of interpolation to calculate
-            shortestpath (bool): If True, will calculate the shortest path
-
-        Returns:
-            np.array: (x,y,z,w) quaternion distance
-        """
-        EPS = np.finfo(float).eps * 4.0
-        
-        q0 = unit_vector(quat0[:4])
-        q1 = unit_vector(quat1[:4])
-        
-        if fraction == 0.0:
-            return q0
-        elif fraction == 1.0:
-            return q1
-        
-        d = np.dot(q0, q1)
-        
-        if abs(abs(d) - 1.0) < EPS:
-            return q0
-        
-        if shortestpath and d < 0.0:
-            # invert rotation
-            d = -d
-            q1 *= -1.0
-        angle = acos(np.clip(d, -1, 1))
-        
-        if abs(angle) < EPS:
-            return q0
-        
-        isin = 1.0 / sin(angle)
-        q0 *= sin((1.0 - fraction) * angle) * isin
-        q1 *= sin(fraction * angle) * isin
-        q0 += q1
-        return q0
-        
+    def _quat_slerp(self, q1, q2, fraction):
+        return quat_slerp(q1, q2, fraction)

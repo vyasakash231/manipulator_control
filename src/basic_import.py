@@ -5,6 +5,7 @@ import sys
 from abc import ABC, abstractmethod
 from math import *
 import threading
+import copy
 from threading import Lock, Thread
 import cv2 as cv
 from cv2 import aruco
@@ -17,6 +18,7 @@ np.set_printoptions(suppress=True)
 import matplotlib
 matplotlib.use('TkAgg')  # Must be before importing pyplot
 import matplotlib.pyplot as plt
+import scipy
 
 import rospy
 import tf, tf2_ros

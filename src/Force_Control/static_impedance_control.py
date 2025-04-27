@@ -31,7 +31,7 @@ class StaticImpedanceControl(Robot):
     def start(self):
         # Set equilibrium point to current state
         self.position_des = self.Robot_RT_State.actual_tcp_position[:3].copy()   # (x, y, z) in mm
-        self.orientation_des = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        self.orientation_des = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
         self.q_dot_prev = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs.copy()   # convert from deg/s to rad/s
         rospy.loginfo("CartesianImpedanceController: Controller started")
 
@@ -55,7 +55,7 @@ class StaticImpedanceControl(Robot):
     
     @property
     def orientation_error(self):
-        current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         # checking for flipping of quaternion (Ensure quaternion is in the same hemisphere)
         if np.dot(current_orientation, self.orientation_des) < 0.0:
@@ -85,7 +85,7 @@ class StaticImpedanceControl(Robot):
     #     For control purposes, the rotation vector components often provide a more useful error 
     #     signal that's proportional to the rotation needed
     #     """
-    #     current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
+    #     current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
     #     if np.dot(current_orientation, self.orientation_des) < 0.0:
     #         current_orientation = -current_orientation
         

@@ -40,7 +40,7 @@ class CartesianImpedanceControl(Robot):
         """Initialize controller with current robot state"""
         # Set equilibrium point to current state
         self.position_des_next = self.Robot_RT_State.actual_tcp_position[:3].copy()    # (x, y, z) in mm
-        self.orientation_des_next = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        self.orientation_des_next = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         self.position_des_target = np.array([342.91931152, -127.32839966, 698.33392334])   # (x, y, z) in mm
         self.orientation_des_target = np.array([0.3484798, 0.7413357, 0.04977372, 0.57140684])  # Convert angles from Euler ZYZ (in degrees) to quaternion        
@@ -67,7 +67,7 @@ class CartesianImpedanceControl(Robot):
     
     @property
     def orientation_error(self):
-        current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         if np.dot(current_orientation, self.orientation_des_next) < 0.0:
             current_orientation = -current_orientation
@@ -99,7 +99,7 @@ class CartesianImpedanceControl(Robot):
     #     For control purposes, the rotation vector components often provide a more useful error 
     #     signal that's proportional to the rotation needed
     #     """
-    #     current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
+    #     current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
     #     if np.dot(current_orientation, self.orientation_des_next) < 0.0:
     #         current_orientation = -current_orientation
         
@@ -172,7 +172,7 @@ class CartesianImpedanceControl(Robot):
         tau_task = np.zeros((6,1))
 
         rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
-        i=0
+
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
                 # Find Jacobian matrix
@@ -198,9 +198,6 @@ class CartesianImpedanceControl(Robot):
                 # estimate frictional torque in Nm
                 self.calc_friction_torque()
 
-                print(i, "=>", np.linalg.norm(self.position_error)*1000)
-                print("==================================================")
-
                 # Compute desired torque
                 tau_d = tau_task + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis] 
                 
@@ -216,12 +213,10 @@ class CartesianImpedanceControl(Robot):
 
                 # Update desired position and orientation with filtering
                 self.position_des_next = self.filter_params * self.position_des_target + (1.0 - self.filter_params) * self.position_des_next   # (x, y, z) in mm
-                self.orientation_des_next = self.quat_slerp(self.orientation_des_next, self.orientation_des_target, self.filter_params)   # Spherical linear interpolation for orientation
+                self.orientation_des_next = self._quat_slerp(self.orientation_des_next, self.orientation_des_target, self.filter_params)   # Spherical linear interpolation for orientation
 
                 # self.position_des_next = self.position_des_target  # (x, y, z) in mm
                 # self.orientation_des_next = self.orientation_des_target 
-                
-                i += 1
 
                 rate.sleep()
 

@@ -18,16 +18,16 @@ class OSC(Robot):
         # self.plotter.setup_plots_1()
 
         # Setup Gain Values
-        translational_gain = 250.0
-        rotational_gain = 400.0
+        translational_gain = 300.0
+        rotational_gain = 350.0
 
         self.Kp = np.eye(6)
         self.Kp[:3, :3] *= translational_gain
         self.Kp[3:, 3:] *= rotational_gain
         
         self.Kv = np.eye(6)
-        self.Kv[:3, :3] *= 1.5 * np.sqrt(translational_gain)
-        self.Kv[3:, 3:] *= 1.0 * np.sqrt(rotational_gain)
+        self.Kv[:3, :3] *= 1.25 * np.sqrt(translational_gain)
+        self.Kv[3:, 3:] *= 0.5 * np.sqrt(rotational_gain)
 
         self.Ko = np.diag([0.08, 0.08, 0.08, 0.08, 0.08, 0.08])
 
@@ -53,7 +53,7 @@ class OSC(Robot):
 
     def store_data(self):
         pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
-        orient = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
         self.record_trajectory = np.vstack((self.record_trajectory, pos))  # shape: (N, 3) 
         self.record_orientation = np.vstack((self.record_orientation, orient))  # shape: (N, 4)
 
@@ -77,21 +77,16 @@ class OSC(Robot):
 
         # for plotting
         self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]   # in m
-        self.record_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
         self.record_motor_torque = self.Robot_RT_State.actual_motor_torque  # in Nm
         self.record_joint_torque = self.Robot_RT_State.actual_joint_torque  # in Nm
 
         # load demo trajectory
         self.load_demo(name=self.file_name)
+        rospy.loginfo("OperationalSpaceController: Controller started")
 
     @property
     def current_velocity(self):
-        # EE_dot = self.Robot_RT_State.actual_tcp_velocity   # [Vx, Vy, Vz, ωx, ωy, ωz]
-        # X_dot = np.zeros(self.n)
-        # X_dot[:3] = 0.001 * EE_dot[:3]   # convert from mm/s to m/s
-        # X_dot[3:] = 0.0174532925 * EE_dot[3:]  # convert from deg/s to rad/s  
-        # return X_dot
-
         self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs  # convert from deg/s to rad/s
         X_dot = self.J @ self.q_dot[:,np.newaxis]
         return X_dot.reshape(-1)   # [Vx, Vy, Vz, ωx, ωy, ωz] in [m/s, rad/s]
@@ -115,27 +110,54 @@ class OSC(Robot):
         current_position = self.Robot_RT_State.actual_tcp_position[:3]   #  (x, y, z) in mm
         return 0.001 * (current_position - self.position_des)  # convert from mm to m
     
+    # @property
+    # def orientation_error(self):
+    #     current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+
+    #     if np.dot(current_orientation, self.orientation_des) < 0.0:
+    #         current_orientation = -current_orientation
+        
+    #     current_rotation = Rotation.from_quat(current_orientation)  # default order: [x,y,z,w]
+    #     desired_rotation = Rotation.from_quat(self.orientation_des)  # default order: [x,y,z,w]
+        
+    #     # Compute the "difference" or quaternion_distance (q_error = q_current^-1 * q_desired)
+    #     """https://math.stackexchange.com/questions/3572459/how-to-compute-the-orientation-error-between-two-3d-coordinate-frames"""
+    #     error_rotation = current_rotation.inv() * desired_rotation
+    #     error_quat = error_rotation.as_quat()  # default order: [x,y,z,w]
+        
+    #     # Extract x, y, z components of error quaternion
+    #     rot_error = error_quat[:3][:, np.newaxis]
+        
+    #     # Transform orientation error to base frame
+    #     current_rotation_matrix = current_rotation.as_matrix()  # this returns a 3x3 rotation matrix
+    #     rot_error = current_rotation_matrix @ rot_error
+    #     return rot_error.reshape(-1)
+    
     @property
     def orientation_error(self):
-        current_orientation = self.eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
-
+        """
+        rotation vector directly encodes rotation magnitude and axis, making it more intuitive
+        It avoids the nonlinear scaling issues that can occur with quaternion components
+        For control purposes, the rotation vector components often provide a more useful error 
+        signal that's proportional to the rotation needed
+        """
+        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
+        
         if np.dot(current_orientation, self.orientation_des) < 0.0:
             current_orientation = -current_orientation
         
-        current_rotation = Rotation.from_quat(current_orientation)  # default order: [x,y,z,w]
-        desired_rotation = Rotation.from_quat(self.orientation_des)  # default order: [x,y,z,w]
+        current_rotation = Rotation.from_quat(current_orientation)
+        desired_rotation = Rotation.from_quat(self.orientation_des)
         
-        # Compute the "difference" or quaternion_distance (q_error = q_current^-1 * q_desired)
-        """https://math.stackexchange.com/questions/3572459/how-to-compute-the-orientation-error-between-two-3d-coordinate-frames"""
+        # Compute the difference quaternion
         error_rotation = current_rotation.inv() * desired_rotation
-        error_quat = error_rotation.as_quat()  # default order: [x,y,z,w]
         
-        # Extract x, y, z components of error quaternion
-        rot_error = error_quat[:3][:, np.newaxis]
+        # Use rotation vector instead of quaternion components
+        rot_error = error_rotation.as_rotvec()[:, np.newaxis]
         
         # Transform orientation error to base frame
-        current_rotation_matrix = current_rotation.as_matrix()  # this returns a 3x3 rotation matrix
-        rot_error = current_rotation_matrix @ rot_error
+        current_rotation_matrix = current_rotation.as_matrix()
+        rot_error = - current_rotation_matrix @ rot_error
         return rot_error.reshape(-1)
         
     def Mx(self, Mq):
@@ -230,8 +252,6 @@ class OSC(Robot):
 
                 # Find Inertia matrix in joint space
                 Mq = self.Robot_RT_State.mass_matrix
-                
-                # Compute control
                 Mx = self.Mx(Mq)
 
                 if self.velocity_error is None:

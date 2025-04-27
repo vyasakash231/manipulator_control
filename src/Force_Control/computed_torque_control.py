@@ -1,49 +1,58 @@
-#!/usr/bin/env python3
+#! /usr/bin/python3
 import os
 import sys
 sys.dont_write_bytecode = True
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../../../common/imp"))) # get import path : DSR_ROBOT.py 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
+
 from basic_import import *
-from .common_utils.doosanA0509s import Robot
-from .common_utils.filters import Filters
-from .common_utils.plot import RealTimePlot
-from .common_utils.robot_RT_state import RT_STATE
-# from common_for_JLA import *
+from common_utils import Robot, RealTimePlot, Filters
+from scipy.spatial.transform import Rotation
 
 class CTC(Robot):
-    def __init__(self, dt):
+    def __init__(self):
         self.is_rt_connected = False
         self.shutdown_flag = False  # Add flag to track shutdown state
-        self.Robot_RT_State = RT_STATE()
-
-        self.dt = dt
-
-        self.filter = Filters(dt)
 
         # Initialize the plotter in the main thread
         self.plotter = RealTimePlot()
-        self.plotter.setup_plots_2()
+        # self.plotter.setup_plots_2()
 
         super().__init__()
 
-        self.joint_vel_limits([150, 150, 150, 150, 150, 150])  # Increased from 50 deg/s
-        self.joint_acc_limits([100, 100, 100, 100, 100, 100])  # Increased from 25 deg/s^2
-
     def plot_data(self):
-        """Thread-safe plotting function with joint errors"""
         try:
-            # Calculate joint errors if we have desired trajectory data
-            joint_errors = None
-            if hasattr(self, 'current_desired_position'):
-                current_position = np.array(self.Robot_RT_State.actual_joint_position_abs)
-                joint_errors = self.current_desired_position - current_position
-            
-            self.plotter.update_data_2(self.Robot_RT_State.actual_motor_torque, self.Robot_RT_State.external_tcp_force, self.Robot_RT_State.raw_force_torque, joint_errors)
+            # self.plotter.update_imdepdance(self.data.actual_motor_torque, 
+            #                                self.data.raw_force_torque, 
+            #                                self.data.actual_joint_torque, 
+            #                                self.impedance_force.reshape(-1))
+            pass
         except Exception as e:
             rospy.logwarn(f"Error adding plot data: {e}")
 
+    def saturate_torque(self, tau, tau_J_d):
+        """
+        Limit both the torque rate of change and peak torque values for Doosan A0509 robot
+        """
+        # First limit rate of change as in your original function
+        # tau_rate_limited = np.zeros(self.n)
+        # for i in range(len(tau)):
+        #     difference = tau[i] - tau_J_d[i]
+        #     tau_rate_limited[i] = tau_J_d[i] + np.clip(difference, -self.delta_tau_max, self.delta_tau_max)
+        # tau = tau_rate_limited.copy()
+        
+        # Now apply peak torque limits based on Doosan A0509 specs
+        limit_factor = 0.95
+        max_torque_limits = limit_factor * np.array([190.0, 190.0, 190.0, 40.0, 40.0, 40.0]) # Nm
+
+        if tau.ndim == 2:
+            tau = tau.reshape(-1)
+
+        # Clip torque values to stay within limits (both positive and negative)
+        tau = np.clip(tau, -max_torque_limits, max_torque_limits)
+        return tau
+
     def run_controller(self, Kp, Kd, qd, qd_dot, qd_ddot):
-        rate = rospy.Rate(1000)
+        rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
         i = 0
         
         total_points = qd.shape[1]
@@ -53,15 +62,12 @@ class CTC(Robot):
                 # Store current desired position for plotting
                 self.current_desired_position = qd[:,i]
 
-                # Plot Torque
-                self._plot_data()
-
                 G_torque = self.Robot_RT_State.gravity_torque
-                C_matrix = self.Robot_RT_State.coriolis_matrix
-                M_matrix = self.Robot_RT_State.mass_matrix
+                C = self.Robot_RT_State.coriolis_matrix
+                M = self.Robot_RT_State.mass_matrix
 
-                q = self.Robot_RT_State.actual_joint_position_abs
-                q_dot = self.Robot_RT_State.actual_joint_velocity_abs
+                q =  0.0174532925 * self.Robot_RT_State.actual_joint_position_abs    # convert from deg to rad
+                q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
 
                 # Calculate errors
                 E = qd[:,i] - q
@@ -78,29 +84,27 @@ class CTC(Robot):
                 u = Kp @ E[:, np.newaxis] + Kd @ E_dot[:, np.newaxis]
 
                 # Compute control torque
-                Torque = M_matrix @ (qd_ddot[:,[i]] + u) + C_matrix @ q_dot[:, np.newaxis] + G_torque[:, np.newaxis]
-
-                Torque = self.filter.low_pass_filter_torque(Torque)  # Apply low-pass filter to smooth torque
-                # Torque = self.filter.moving_average_filter(Torque)  # Apply moving average filter
-                # Torque = self.filter.smooth_torque(Torque)  # Apply second-order filter
+                Torque = M @ (qd_ddot[:,[i]] + u) + C @ q_dot[:, np.newaxis] + G_torque[:, np.newaxis]
                 
-                # Add torque limits
-                torque_limits = np.array([70, 70, 70, 70, 70, 70])
-                Torque = np.clip(Torque, -torque_limits[:, np.newaxis], torque_limits[:, np.newaxis])
+                # Saturate torque to avoid limit breach
+                Torque = self.saturate_torque(Torque, self.tau_J_d)
 
                 # Send torque command
                 writedata = TorqueRTStream()
                 writedata.tor = Torque
-                writedata.time = 1.0 * self.dt
-                
+                writedata.time = 0.0
                 self.torque_publisher.publish(writedata)
 
-                rate.sleep()
+                self.tau_J_d = Torque.copy()
+
                 i += 1
+
+                rate.sleep()
+                
             print(f"Control loop finished. Completed {i}/{total_points} points")
             
-        except Exception as e:
-            print(f"Error in control loop: {e}")
+        except rospy.ROSInterruptException:
+            pass
         finally:
             self.cleanup()
 
@@ -169,8 +173,8 @@ if __name__ == "__main__":
         t, qd, qd_dot, qd_ddot = pre_process_trajectory(tf=10.0, dt=dt)
         
         # Create control object
-        task = CTC(dt)
-        rospy.sleep(2.5)  # Give time for initialization
+        task = CTC()
+        rospy.sleep(2.0)  # Give time for initialization
 
         Kp = np.diag([2.5, 2.5, 3.0, 3.5, 30.0, 300.0]) 
         Kd = np.diag([0.5, 0.5, 0.5, 0.5, 2.0, 20.0])
@@ -182,7 +186,7 @@ if __name__ == "__main__":
         
         # Keep the main thread running for the plot
         while not rospy.is_shutdown():
-            plt.pause(0.05)  # This keeps the plot window responsive
+            plt.pause(0.01)  # This keeps the plot window responsive
             
     except rospy.ROSInterruptException:
         pass
