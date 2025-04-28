@@ -22,9 +22,9 @@ class PlotData:
 
         # Check if the file of performed task already exists, if it exists load the data.
         curr_dir=os.getcwd()
-        if os.path.exists(curr_dir + '/data/task_performed' + '.npz'):
+        if os.path.exists(curr_dir + '/data/task_performed_2' + '.npz'):
             print("task_performed already exists.")
-            self.load_task_performed(name="task_performed")
+            self.load_task_performed(name="task_performed_2")
 
         # Modified-DH Parameters 
         self.DOF = 6
@@ -70,7 +70,7 @@ class PlotData:
         self.joint_torque = data['joint_torque']   # shape: (N, 3), in Nm
         self.impedance_force = data['imp_force']   # shape: (N, 3), in [N, Nm]
         # self.gripper = data['grip']
-
+       
         # Important to make quaternions continuous 
         self.orientation = -make_quat_continuity(self.orientation)
 
