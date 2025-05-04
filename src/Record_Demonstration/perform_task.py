@@ -47,7 +47,7 @@ try:
     rospy.sleep(2.0)  # Give time for initialization
 
     # Start controller in a separate thread
-    controller_thread = Thread(target=task.run_controller_2, args=(175.0, 10.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
+    controller_thread = Thread(target=task.run_controller_2, args=(150.0, 15.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
     controller_thread.daemon = True
     controller_thread.start()
     

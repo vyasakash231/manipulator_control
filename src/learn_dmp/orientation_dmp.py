@@ -5,12 +5,13 @@ sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from basic_import import *
-from .canonical_system import Canonical_System
+from common_utils import svd_solve
+from .canonical_system import CanonicalSystem
 
 
 # DMP Explained : https://studywolf.wordpress.com/2013/11/16/dynamic-movement-primitives-part-1-the-basics/
 class OrientationDMP:
-    def __init__(self, no_of_DMPs, no_of_basis_func, dt=0.01, T=1, q_0=None, q_goal=None, alpha=3, K=1050, D=None, W=None):
+    def __init__(self, no_of_basis_func, dt=0.01, T=1, q_0=None, alpha=3, K=1050, D=None, W=None):
         """
         no_of_DMPs         : number of dynamic movement primitives (i.e. dimensions)
         no_of_basis_func   : number of basis functions per DMP (actually, they will be one more)
@@ -23,7 +24,6 @@ class OrientationDMP:
         w              : associated weights
         alpha          : constant of the Canonical System
         """
-        self.no_of_DMPs = no_of_DMPs
         self.no_of_basis_func = no_of_basis_func
 
         # Set up the DMP system
@@ -31,17 +31,13 @@ class OrientationDMP:
             q_0 = np.zeros(4)
         self.q_0 = copy.deepcopy(q_0)
 
-        if q_goal is None:
-            q_goal = np.ones(4)
-        self.q_goal = copy.deepcopy(q_goal)
-
-        self.K = K  # stiffness
+        self.K = K   # stiffness
         if D is None:
             self.D = 2 * np.sqrt(self.K)  # damping 
         else:
             self.D = D
 
-        self.cs = Canonical_System(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
+        self.cs = CanonicalSystem(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
         
         self.reset_state()  # set up the DMP system
 
@@ -66,8 +62,8 @@ class OrientationDMP:
     def reset_state(self):
         """Reset the system state"""
         self.q = self.q_0.copy()
-        self.dq = np.zeros((4, 1))
-        self.ddq = np.zeros((4, 1))
+        self.omega = np.zeros((3, 1))
+        self.omeaga_dot = np.zeros((3, 1))
         self.cs.reset()
 
     def gaussian_basis_func(self, theta):
@@ -84,9 +80,14 @@ class OrientationDMP:
         q = [x, y, z, w] = (u + v)
         where, u = [x, y, z], v = [w]
         """
+        if q1.ndim == 2:
+            q1 = q1.reshape(-1)
+        if q2.ndim == 2:
+            q2 = q2.reshape(-1)
+        
         u1, v1 = q1[:3], q1[-1]
         u2, v2 = q2[:3], q2[-1]
-
+        
         # quaternion product => q1 * q2 = (v1 + u1) * (v2 + u2)
         v = v1*v2 - np.dot(u1, u2)
         u = v1*u2 + v2*u1 + np.cross(u1, u2)
@@ -99,6 +100,9 @@ class OrientationDMP:
         q = [x, y, z, w] = (u + v)
         where, u = [x, y, z], v = [w]
         """
+        if q.ndim == 2:
+            q = q.reshape(-1)
+
         u, v = q[:3], q[-1]
         u_norm = np.linalg.norm(u)
         
@@ -112,6 +116,32 @@ class OrientationDMP:
     def quaternion_conjugate(self, q):
         u, v = q[:3], q[-1]
         return np.append(-u, v)
+        
+    def skew4x4(self, z):
+        mat = np.zeros((4,4))
+
+        if z.ndim == 2:
+            z = z.reshape(-1)
+
+        mat[0,1:] = -z  # [-ωx,-ωy,-ωz]
+        mat[1:,0] = z  # [ωx,ωy,ωz]
+        mat[1,2] = z[2]  # ωz
+        mat[1,3] = -z[1]  # -ωy
+        mat[2,1] = -z[2]  # -ωz
+        mat[2,3] = z[0]  # ωx
+        mat[3,1] = z[1]  # ωy
+        mat[3,2] = -z[0]  # -ωx
+        return mat
+    
+    def q_dot(self, omega, q):
+        Skew_omega = self.skew4x4(omega)
+        return 0.5 * (Skew_omega @ q)
+    
+    def D_inv(self, D):
+        if abs(np.linalg.det(D)) >= 1e-4:  # This was calculated based on LU-Decomposition which is numerically not very stable
+            return svd_solve(D)  # SVD is more numerically stable when dealing with matrices that might be ill-conditioned
+        else:
+            return np.linalg.pinv(D, rcond=1e-5)   
 
     """from, eqn (15) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
     def generate_weights(self, f_target, theta_track, log_q):
@@ -123,7 +153,7 @@ class OrientationDMP:
                     \   ∑ ψ(θ)   /              \   ∑ ψ(θ)   /       
         
                /  ψ(θ)  \     
-        W.T @ |----------| * θ => D^(-1) @ f(θ) = A
+        W.T @ |----------| * θ = D^(-1) @ f(θ) = A
                \ ∑ ψ(θ) /            
                                  
                   | /  ψ(θ)  \     |^(-1)
@@ -132,13 +162,13 @@ class OrientationDMP:
         """
         # generate Basis functions
         psi = self.gaussian_basis_func(theta_track)
-
+        
         # scaling factor
         A = np.zeros_like(f_target)
-        for i in range(f_target.shape[1]):
+        for i in range(f_target.shape[0]):
             D = np.diag(log_q[:,i])  # shape (3,3)
-            A[:,[i]] = np.linalg.inv(D) @ f_target[:,[i]]
+            A[i,:] = (self.D_inv(D) @ f_target[[i],:].T).reshape(-1)
 
         # calculate basis function weights using "linear regression"
         sum_psi = np.sum(psi,0)
-        self.W = np.nan_to_num(A.T @ np.linalg.pinv((psi / sum_psi) * theta_track))
+        self.W = np.nan_to_num(A.T @ np.linalg.pinv((psi / sum_psi) * theta_track))   # (3, N) x (N, N+1)

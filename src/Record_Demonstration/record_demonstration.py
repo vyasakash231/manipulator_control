@@ -79,13 +79,14 @@ class DoosanRecord:
         print("Move robot to start recording.")
 
         # TO increase the amount of data collected, increase the frequency
-        rate = rospy.Rate(25)   # 25Hz = 40ms, 50Hz = 20ms
+        rate = rospy.Rate(75)   # 25Hz = 40ms, 50Hz = 20ms
         
         # observe small movement to start recoding
         while robot_perturbation < trigger:
             robot_perturbation = np.sqrt((self.current_position[0] - init_pose[0])**2 + (self.current_position[1] - init_pose[1])**2 + (self.current_position[2] - init_pose[2])**2)
         
         self.recorded_q = self.q  # in rad
+        self.recorded_q_dot = self.q_dot  # in rad/s
         self.recorded_trajectory = self.current_position  # in m
         self.recorded_orientation = self.current_quat  # quaternions
         self.recorded_linear_velocity = self.current_linear_vel  # in m/s
@@ -101,6 +102,7 @@ class DoosanRecord:
             #     self.grip_value = self.gripper_open_width   # Open the gripper
            
             self.recorded_q = np.vstack((self.recorded_q, self.q))  # shape: (N, 6) 
+            self.recorded_q_dot = np.vstack((self.recorded_q_dot, self.q_dot))  # shape: (N, 6) 
             self.recorded_trajectory = np.vstack((self.recorded_trajectory, self.current_position))  # shape: (N, 3) 
             self.recorded_orientation = np.vstack((self.recorded_orientation, self.current_quat))  # shape: (N, 4)
             self.recorded_linear_velocity = np.vstack((self.recorded_linear_velocity, self.current_linear_vel))  # shape: (N, 3)
@@ -123,10 +125,11 @@ class DoosanRecord:
             rospy.logerr(f"Error during shutdown: {e}")
         return
 
-    def save(self, name='demo'):
+    def save(self, name='demo_linear'):
         curr_dir=os.getcwd()
         np.savez(curr_dir+ '/data/' + str(name) + '.npz',
                 q=self.recorded_q,
+                q_dot=self.recorded_q_dot,
                 traj=self.recorded_trajectory,
                 ori=self.recorded_orientation,
                 vel=self.recorded_linear_velocity,

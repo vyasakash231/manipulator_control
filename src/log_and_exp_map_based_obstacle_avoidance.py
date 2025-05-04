@@ -32,12 +32,12 @@ class Robot:
 
 class Obstacle:
     def __init__(self, position, radius=0.5):
-        self.position = np.array(position, dtype=float)
+        self.center = np.array(position, dtype=float)
         self.radius = radius
         
-    def distance_to(self, position):
+    def distance_to(self, agent_position):
         """Calculate distance from obstacle to position"""
-        return np.linalg.norm(self.position - position) - self.radius
+        return np.linalg.norm(self.center - agent_position) - self.radius
 
 class ObstacleAvoidance:
     def __init__(self, robot, obstacles, influence_radius=2.0):
@@ -110,7 +110,7 @@ class ObstacleAvoidance:
                 u_i = self.perpendicular_vector(v_ref)
             
             # Compute proximity-based damping factor
-            gamma_i = np.exp(-self.lambda_prox * distance) / (distance**2 + 0.05)  # Add 0.1 to avoid division by zero
+            gamma_i = np.exp(-self.lambda_prox * distance) / (distance**2 + 0.05)  # Add 0.05 to avoid division by zero
             gamma_sum += gamma_i
             
             gamma_list.append(gamma_i)
@@ -156,7 +156,7 @@ def create_simulation(dimensions=3):
         Obstacle(position=[-1, 0, 0], radius=0.7),
         Obstacle(position=[0.8, 2, 0], radius=0.5),
         Obstacle(position=[0, -2, 0], radius=0.6),
-        Obstacle(position=[1.8, 0, 0], radius=0.6),
+        # Obstacle(position=[1.8, 0, 0], radius=0.6),
         # Obstacle(position=[1.5, 1.0, 0], radius=0.7),
         # Obstacle(position=[2.2, 2.0, 0], radius=0.6),
         # Obstacle(position=[0, -2, 0], radius=0.6)
@@ -165,74 +165,41 @@ def create_simulation(dimensions=3):
     avoidance_system = ObstacleAvoidance(robot, obstacles)
     return robot, obstacles, avoidance_system, dimensions
 
-# Animation
 class RobotAnimator:
     def __init__(self, dimensions=2):
-        self.robot, self.obstacles, self.avoidance_system, self.dimensions = self.create_simulation(dimensions)
+        self.dimensions = dimensions
+        self.robot, self.obstacles, self.avoidance_system, _ = create_simulation(dimensions)
         self.fig = None
-        self.axs = []  # List of axes for subplots
+        self.ax = None  # Main axis
         self.robot_plot = None
         self.path_plot = None
         self.goal_plot = None
         self.vel_arrow = None
         self.obstacle_circles = []
         self.anim = None
-        self.T = None  # For time data
-        self.x_plot = None  # For position data
-        self.y_plot = None
-        self.z_plot = None
-        self.ext_force = []  # For external forces
-        self.Xd_plot = []    # For desired trajectory
-        self.e_joint = None  # For joint errors
-        self.n = 0  # Number of joints
         
-    def create_simulation(self, dimensions):
-        # This would call your existing create_simulation function
-        # Placeholder for the function call
-        return create_simulation(dimensions=dimensions)
-        
-    def setup_animation(self, figsize=(12, 10), grid_spec=None):
-        """
-        Set up custom subplot layout using gridspec
-        
-        Args:
-            figsize: Size of the figure (width, height)
-            grid_spec: Custom grid specification (rows, cols)
-        """
-        import matplotlib.gridspec as gridspec
-        
-        # Create figure
+    def setup_animation(self, figsize=(10, 8)):
+        """Set up the animation figure and axis"""
         self.fig = plt.figure(figsize=figsize)
         
-        # Default grid specification if none provided
-        if grid_spec is None:
-            grid_spec = (2, 2)  # Default 2x2 grid
+        if self.dimensions == 3:
+            self.ax = self.fig.add_subplot(111, projection='3d')
+            self._set_3d_plot_properties(self.ax)
+        else:
+            self.ax = self.fig.add_subplot(111)
+            self._set_2d_plot_properties(self.ax)
             
-        # Create GridSpec
-        gs = gridspec.GridSpec(grid_spec[0], grid_spec[1])
-        
-        # Create subplots
-        self.axs = []
-        
-        # Main plot (takes entire left column)
-        self.axs.append(self.fig.add_subplot(gs[:, 0], projection='3d'))
-        
-        # Right column plots
-        self.axs.append(self.fig.add_subplot(gs[0, 1]))
-        self.axs.append(self.fig.add_subplot(gs[1, 1]))
-        
-        # Initialize the main plot
-        self._initialize_main_plot(self.axs[0])
-        
         return self
     
-    def _set_plot_properties(self, ax):
+    def _set_2d_plot_properties(self, ax):
         """Set the basic properties for a 2D plot"""
         ax.set_xlim(-6, 6)
         ax.set_ylim(-6, 6)
         ax.set_aspect('equal')
         ax.grid(True)
         ax.set_title('Manifold-Based Obstacle Avoidance')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
     
     def _set_3d_plot_properties(self, ax, elevation=30, azimuth=-60):
         """Set properties for a 3D plot"""
@@ -245,171 +212,82 @@ class RobotAnimator:
         ax.view_init(elevation, azimuth)
         ax.set_title('Robot Trajectory')
     
-    def _initialize_main_plot(self, ax):
-        """Initialize the main plot, either 2D or 3D"""
-        if hasattr(ax, 'get_zlim'):  # Check if it's a 3D axis
-            # 3D plot initialization
-            self._set_3d_plot_properties(ax)
-        else:
-            # 2D plot initialization
-            self.robot_plot, = ax.plot([], [], 'bo', markersize=10)
-            self.path_plot, = ax.plot([], [], 'b-', alpha=0.5)
-            self.goal_plot, = ax.plot([], [], 'g*', markersize=15)
+    def init_animation(self):
+        """Initialize the animation"""
+        if self.dimensions == 2:
+            # Create initial 2D plots
+            self.robot_plot, = self.ax.plot([], [], 'bo', markersize=10)
+            self.path_plot, = self.ax.plot([], [], 'b-', alpha=0.5)
+            self.goal_plot, = self.ax.plot([self.robot.goal[0]], [self.robot.goal[1]], 'g*', markersize=15)
             
-            # Initialize velocity vector plot
-            self.vel_arrow = ax.arrow(0, 0, 0, 0, head_width=0.2, head_length=0.3, fc='blue', ec='blue')
-            
-            # Initialize obstacle plots
+            # Plot obstacles
             self.obstacle_circles = []
             for obstacle in self.obstacles:
                 circle = patches.Circle((obstacle.position[0], obstacle.position[1]), obstacle.radius, fc='red', alpha=0.6)
-                ax.add_patch(circle)
+                self.ax.add_patch(circle)
                 self.obstacle_circles.append(circle)
+                
+            # Initial velocity arrow (empty)
+            self.vel_arrow = self.ax.arrow(0, 0, 0, 0, head_width=0.2, head_length=0.3, fc='blue', ec='blue')
             
-            self._set_plot_properties(ax)
-    
-    def init_animation(self):
-        """Initialize the animation frames"""
-        if len(self.axs) == 1:
-            # Single plot initialization
-            ax = self.axs[0]
-            self.robot_plot.set_data([], [])
-            self.path_plot.set_data([], [])
-            self.goal_plot.set_data([self.robot.goal[0]], [self.robot.goal[1]])
-            
-            if self.vel_arrow:
-                self.vel_arrow.remove()
-                self.vel_arrow = None
-            
-            return [self.robot_plot, self.path_plot, self.goal_plot] + self.obstacle_circles
+            return [self.robot_plot, self.path_plot, self.goal_plot] + self.obstacle_circles + [self.vel_arrow]
         else:
-            # Multiple subplots initialization - clear all axes
-            for ax in self.axs:
-                ax.clear()
-            
-            # Re-initialize main plot
-            self._initialize_main_plot(self.axs[0])
-            
-            return self.axs
+            # 3D initialization would go here
+            pass
     
     def update_animation(self, frame):
-        """Default update function for single plot animation"""
-        if len(self.axs) > 1:
-            # If using multiple subplots, delegate to custom update
-            return self.update_multi_plot(frame)
-        
-        # Single plot update
-        ax = self.axs[0]
+        """Update the animation for each frame"""
+        # Update robot position using obstacle avoidance
         self.avoidance_system.update()
         
-        # Update robot position plot
-        self.robot_plot.set_data([self.robot.position[0]], [self.robot.position[1]])
-        
-        # Update path plot
-        path_x, path_y = zip(*[(p[0], p[1]) for p in self.robot.history])
-        self.path_plot.set_data(path_x, path_y)
-        
-        # Remove old velocity arrow
-        if self.vel_arrow:
-            self.vel_arrow.remove()
-        
-        # Create new arrow for velocity
-        vel_scale = 1.0  # Scale for visualization
-        vel_x = self.robot.velocity[0] * vel_scale
-        vel_y = self.robot.velocity[1] * vel_scale
-        self.vel_arrow = ax.arrow(self.robot.position[0], self.robot.position[1],vel_x, vel_y,
-            head_width=0.2, head_length=0.3, fc='blue', ec='blue')
-        
-        # Check if robot reached goal
-        dist_to_goal = np.linalg.norm(self.robot.position[:2] - self.robot.goal[:2])
-        if dist_to_goal < 0.5:
-            self.anim.event_source.stop()
-            ax.set_title('Goal Reached!')
-        
-        return [self.robot_plot, self.path_plot, self.goal_plot] + self.obstacle_circles
-    
-    def update_multi_plot(self, frame):
-        """Update function for multi-subplot animation"""
-        # Update robot visualization in 3D
-        self._plot_robot(self.axs[0], frame)
-        
-        # Update joint errors plot
-        if hasattr(self, 'e_joint') and self.e_joint is not None:
-            self._plot_joint_errors(self.axs[1], frame)
-        
-        # Update torques plot or other data
-        # This is a placeholder - implement according to your specific needs
-        if hasattr(self, '_plot_torques'):
-            self._plot_torques(self.axs[2], frame)
-        
-        return self.axs
-    
-    def create_animation(self, update_func=None, frames=200, interval=50):
-        """
-        Create the animation using the specified update function
-        
-        Args:
-            update_func: Custom update function (if None, uses default)
-            frames: Number of frames in the animation
-            interval: Interval between frames in milliseconds
-        """
-        if update_func is None:
-            update_func = self.update_animation
+        if self.dimensions == 2:
+            # Update robot position plot
+            self.robot_plot.set_data([self.robot.position[0]], [self.robot.position[1]])
             
-        # For time-based animations
-        if hasattr(self, 'T') and self.T is not None:
-            frames = len(self.T) - 1
-            if frames < 10:  # Shorter animations get faster playback
-                interval = 200
-            else:
-                interval = 50
-        elif hasattr(self, 'x_plot') and self.x_plot is not None:
-            frames = self.x_plot.shape[0] - 1
-        
+            # Update path plot
+            path_x = [p[0] for p in self.robot.history]
+            path_y = [p[1] for p in self.robot.history]
+            self.path_plot.set_data(path_x, path_y)
+            
+            # Remove old velocity arrow and create new one
+            self.vel_arrow.remove()
+            vel_scale = 1.0
+            vel_x = self.robot.velocity[0] * vel_scale
+            vel_y = self.robot.velocity[1] * vel_scale
+            self.vel_arrow = self.ax.arrow(self.robot.position[0], self.robot.position[1], vel_x, vel_y, head_width=0.2, head_length=0.3, fc='blue', ec='blue')
+            
+            # Check if robot reached goal
+            dist_to_goal = np.linalg.norm(self.robot.position[:2] - self.robot.goal[:2])
+            if dist_to_goal < 0.5:
+                self.anim.event_source.stop()
+                self.ax.set_title('Goal Reached!')
+            
+            return [self.robot_plot, self.path_plot, self.goal_plot] + self.obstacle_circles + [self.vel_arrow]
+        else:
+            # 3D animation update would go here
+            pass
+    
+    def create_animation(self, frames=200, interval=50):
+        """Create the animation"""
         self.anim = FuncAnimation(
             self.fig, 
-            update_func, 
+            self.update_animation, 
             frames=frames, 
             init_func=self.init_animation, 
-            blit=False, 
+            blit=True,  # Important for performance
             interval=interval,
             repeat=False)
-        plt.tight_layout()
         return self.fig, self.anim
     
-    def _plot_robot(self, ax, k):
-        """Plot the robot configuration at frame k"""
-        ax.clear()
-        
-        # Set 3D view properties
-        self._set_3d_plot_properties(ax)
-    
-    def _plot_joint_errors(self, ax, k):
-        """Plot joint angle errors at frame k"""
-        ax.clear()
-    
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Joint Angle Error (q_{r} - q) in radians')
-        ax.legend()
-    
-    def _plot_torques(self, ax, k):
-        """Plot torques at frame k - placeholder method"""
-        ax.clear()
-        ax.set_title("Torques")
-        # This method should be implemented according to your specific needs
-        # Similar to how _plot_joint_errors is implemented
-    
-    def _plot_multiple_obstacles(self, ax):
-        """Plot obstacles - placeholder method"""
-        # This method should be implemented according to your specific needs
-        pass
-
+    def show(self):
+        """Display the animation"""
+        plt.tight_layout()
+        plt.show()
 
 # To run the simulation
 if __name__ == "__main__":
-    print("Creating 2D animation...")
+    # Create animator for 2D simulation
     animator = RobotAnimator(dimensions=2)
     animator.setup_animation()
     fig, anim = animator.create_animation()
-    plt.show()
-    
+    animator.show()

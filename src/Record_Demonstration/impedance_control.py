@@ -4,12 +4,20 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
-from basic_import import *
-from common_utils import Robot
-# from learn_dmp import PositionDMP, OrientationDMP
+# Import your custom modules
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
+
 from scipy.spatial.transform import Rotation
 # from scipy.signal import butter, filtfilt
 # from scipy.spatial.transform import Rotation, Slerp
+
+try:
+    from basic_import import *
+    from common_utils import Robot
+    from learn_dmp import PositionDMP, QuaternionDMP
+except ImportError:
+    rospy.logerr("Failed to import required modules. Check your ROS package setup.")
+    sys.exit(1)
 
 
 class CartesianImpedanceControl(Robot):
@@ -299,7 +307,7 @@ class CartesianImpedanceControl(Robot):
         finally:
             self.cleanup()
 
-    """Appendix: Impedance control from the paper, Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
+    """Impedance control from the Appendix section of the paper, Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
     def run_controller_2(self, K_trans, K_rot):
         self.start()
         self.set_compliance_parameters(K_trans, K_rot)
@@ -341,6 +349,7 @@ class CartesianImpedanceControl(Robot):
 
                 M = self.Robot_RT_State.mass_matrix
                 C = self.Robot_RT_State.coriolis_matrix
+                # self.J = self.Robot_RT_State.jacobian_matrix
                 self.J,_,_ = self.kinematic_model.Jacobian(self.q)
                 J_dot,_,_ = self.kinematic_model.Jacobian_dot(self.q, self.q_dot)
 
@@ -394,17 +403,27 @@ class CartesianImpedanceControl(Robot):
         traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
 
         # Start DMPS
-        dmp = PositionDMP(no_of_DMPs=3, no_of_basis_func=250, T=10, dt=traj_dt, K=10, alpha=2.0)
+        position_dmp = PositionDMP(no_of_DMPs=3, no_of_basis_func=400, T=10, dt=traj_dt, K=10.0, alpha=1.0)
+        quaternion_dmp = QuaternionDMP(no_of_basis_func=40, T=10, dt=traj_dt, K=10.0, alpha=1.0)
 
-        # learn Weights based on Demo
+        # learn Weights based on position Demo
         X_demo = 0.001 * self.position_demo.T   # demo position data of shape (3, N) in m
         V_demo = self.linear_velocity_demo.T   # demo velocity data of shape (3, N) in m
-        dmp.learn_dynamics(X_des=X_demo, V_des=V_demo)
-        dmp.reset_state()
+        position_dmp.learn_dynamics_1(X_des=X_demo, V_des=V_demo)
+        position_dmp.reset_state()
+
+        # learn Weights based on orientation Demo
+        Q_demo = self.orientation_demo.T   # orientation data of shape (4, N)
+        omega_demo = self.angular_velocity_demo.T   # demo velocity data of shape (3, N) in m
+        quaternion_dmp.learn_dynamics_1(q_des=Q_demo, omega_des=omega_demo)
+        quaternion_dmp.reset_state()
+
+        print(self.N)
 
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
         X_goal = X_demo[:,[-1]]
+        Q_goal = Q_demo[:,[-1]]
         gamma = 1
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
@@ -421,25 +440,26 @@ class CartesianImpedanceControl(Robot):
                         break
 
                 # perform DMP step -> Update desired position and orientation
-                X_dmp, dX_dmp = dmp.step(X_goal, gamma)
+                X_dmp, dX_dmp = position_dmp.step_1(X_goal, gamma)
                 self.position_des_next, self.desired_linear_vel = X_dmp.reshape(-1), dX_dmp.reshape(-1)
 
-                print(self.position_des_next, self.desired_linear_vel)
-
-                # # Find Jacobian matrix
+                Q_dmp, omega_dmp = quaternion_dmp.step_1(Q_goal, gamma)
+                self.orientation_des_next, self.desired_angular_vel = Q_dmp.reshape(-1), omega_dmp.reshape(-1)
+                
+                # Find Jacobian matrix
                 self.J = self.Robot_RT_State.jacobian_matrix
 
                 # define EE-Position & Orientation error in task-space
                 error[:3] = self.position_error
-                # error[3:] = self.orientation_error
+                error[3:] = self.orientation_error
 
                 # # define EE-Velocitt error in task-space
                 velocity_error = self.velocity_error
 
                 # # Cartesian PD control with damping
                 self.impedance_force = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]
-                tau_task = - self.J.T @ self.impedance_force
-                        
+                tau_task = - self.J[:3,:].T @ self.impedance_force[:3]
+                 
                 # # compute gravitational torque in Nm
                 G_torque = self.Robot_RT_State.gravity_torque 
 
@@ -448,6 +468,8 @@ class CartesianImpedanceControl(Robot):
 
                 # # Compute desired torque
                 tau_d = tau_task + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis] 
+
+                # print(tau_task.reshape(-1))
                 
                 # Saturate torque to avoid limit breach
                 tau_d = self.saturate_torque(tau_d)
@@ -464,11 +486,11 @@ class CartesianImpedanceControl(Robot):
                 If the plant/Robot state drifts away from the state of the DMPs, we have to slow down the execution speed of the 
                 DMP to allow the plant time to catch up. To do this we just have to multiply the DMP timestep dt with gamma
                 """
-                current_position = self.Robot_RT_State.actual_tcp_position[:3]   # (x, y, z) in mm
-                gamma = 1 / (1 + LA.norm(self.position_des_next - current_position))
+                #current_position = self.Robot_RT_State.actual_tcp_position[:3]   # (x, y, z) in mm
+                #gamma = 1 / (1 + LA.norm(self.position_des_next - current_position))
 
                 rate.sleep()
-                break
+                
         except rospy.ROSInterruptException:
             pass
         finally:

@@ -5,12 +5,12 @@ sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from basic_import import *
-from .canonical_system import Canonical_System
+from .canonical_system import CanonicalSystem
 
 
 # DMP Explained : https://studywolf.wordpress.com/2013/11/16/dynamic-movement-primitives-part-1-the-basics/
 class DiscreteDMP:
-    def __init__(self, no_of_DMPs, no_of_basis_func, dt=0.01, T=1, X_0=None, X_g=None, alpha=3, K=1050, D=None, W=None):
+    def __init__(self, no_of_DMPs, no_of_basis_func, dt=0.01, T=1, X_0=None, alpha=3, K=1050, D=None, W=None):
         """
         no_of_DMPs         : number of dynamic movement primitives (i.e. dimensions)
         no_of_basis_func   : number of basis functions per DMP (actually, they will be one more)
@@ -31,17 +31,13 @@ class DiscreteDMP:
             X_0 = np.zeros(self.no_of_DMPs)
         self.X_0 = copy.deepcopy(X_0)
 
-        if X_g is None:
-            X_g = np.ones(self.no_of_DMPs)
-        self.X_g = copy.deepcopy(X_g)
-
         self.K = K  # stiffness
         if D is None:
             self.D = 2 * np.sqrt(self.K)  # damping 
         else:
             self.D = D
 
-        self.cs = Canonical_System(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
+        self.cs = CanonicalSystem(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
         
         self.reset_state()  # set up the DMP system
 
@@ -91,7 +87,7 @@ class DiscreteDMP:
         """
         # generate Basis functions
         psi = self.gaussian_basis_func(theta_track)
-
+        
         # calculate basis function weights using "linear regression"
         sum_psi = np.sum(psi,0)
         self.W = np.nan_to_num(f_target.T @ np.linalg.pinv((psi / sum_psi) * theta_track))

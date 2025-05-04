@@ -1,11 +1,11 @@
 import numpy as np
 
-class Canonical_System:
+class CanonicalSystem:
     """
     τ * (dθ/dt) = - alpha * θ
     
     Intergrate both sides;
-    intgrate(dθ/θ) = -(alpha/τ) * integrate(dt)
+    ∫(dθ/θ) = -(alpha/τ) * ∫dt
     ln(θ2) - ln(θ1) = -(alpha/τ) * (t2 - t1)
 
     ln(θ2/θ1) = -(alpha/τ) * (t2 - t1)
