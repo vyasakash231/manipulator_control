@@ -16,7 +16,7 @@ class CanonicalSystem:
         self.dt = dt
         self.alpha = alpha
         self.run_time = run_time  # T
-        self.time_steps = int(run_time/dt)  # T/dt = 1/0.005 = 200 time steps
+        self.time_steps = int(self.run_time/self.dt)  # T/dt = 1/0.005 = 200 time steps
 
         self.reset()
 

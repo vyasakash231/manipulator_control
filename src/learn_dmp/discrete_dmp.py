@@ -37,8 +37,8 @@ class DiscreteDMP:
         else:
             self.D = D
 
-        self.cs = CanonicalSystem(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
-        
+        self.cs = CanonicalSystem(dt=dt, alpha=alpha)  # setup a canonical system
+
         self.reset_state()  # set up the DMP system
 
         self.center_of_gaussian()  # centers of Gaussian basis functions distributed along the phase of the movement
@@ -50,7 +50,9 @@ class DiscreteDMP:
         self.W = W
 
     def center_of_gaussian(self):
-        self.c = np.exp(-self.cs.alpha * np.linspace(0, self.cs.run_time, self.no_of_basis_func + 1))  #  centers are exponentially spaced
+        # desired activations throughout time
+        des_c = np.linspace(0, self.cs.run_time, self.no_of_basis_func + 1)
+        self.c = np.exp(-self.cs.alpha * des_c)  #  centers are exponentially spaced
 
     def variance_of_gaussian(self):
         """width/variance of gaussian distribution"""
@@ -91,3 +93,7 @@ class DiscreteDMP:
         # calculate basis function weights using "linear regression"
         sum_psi = np.sum(psi,0)
         self.W = np.nan_to_num(f_target.T @ np.linalg.pinv((psi / sum_psi) * theta_track))
+
+        for i in range(self.no_of_DMPs):
+            for j in range(self.no_of_basis_func):
+                pass

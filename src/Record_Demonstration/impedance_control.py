@@ -418,8 +418,6 @@ class CartesianImpedanceControl(Robot):
         quaternion_dmp.learn_dynamics_1(q_des=Q_demo, omega_des=omega_demo)
         quaternion_dmp.reset_state()
 
-        print(self.N)
-
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
         X_goal = X_demo[:,[-1]]

@@ -89,7 +89,7 @@ class OrientationDMP:
         u2, v2 = q2[:3], q2[-1]
         
         # quaternion product => q1 * q2 = (v1 + u1) * (v2 + u2)
-        v = v1*v2 - np.dot(u1, u2)
+        v = v1*v2 + np.dot(u1, u2)
         u = v1*u2 + v2*u1 + np.cross(u1, u2)
         return np.append(u, v)
     
@@ -110,12 +110,23 @@ class OrientationDMP:
             return np.array([0, 0, 0])
         
         u_unit = u / u_norm
-        angle = np.arccos(np.clip(v, -1.0, 1.0))
+        angle = np.arccos(v)
         return angle * u_unit
     
+    """conjugate of quaternion q = [x, y, z, w] is q* = [-x, -y, -z, w]"""
     def quaternion_conjugate(self, q):
         u, v = q[:3], q[-1]
-        return np.append(-u, v)
+        return np.append(-u, v)  
+    
+    def distance_matrice(self, q1, q2):
+        q2_conj = self.quaternion_conjugate(q2)
+        quat_mul = self.quaternion_multiply(q1, q2_conj)
+        u, v = quat_mul[:3], quat_mul[-1]
+        if v != -1 and np.all(u) != 0:
+            quat_log = self.quaternion_logarithm(quat_mul)
+            return np.linalg.norm(quat_log)
+        else:
+            return np.pi
         
     def skew4x4(self, z):
         mat = np.zeros((4,4))

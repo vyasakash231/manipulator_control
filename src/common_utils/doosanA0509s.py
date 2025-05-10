@@ -43,9 +43,9 @@ class Robot(ABC):
         self.read_rate = 3000  # in Hz (0.333 ms)
         self.write_rate = 1000  # in Hz (1 ms)
 
-        self.client_thread_ = Thread(target=self.read_data_rt_client)
-        self.client_thread_.daemon = True  # Make thread daemon so it exits when main thread exits
-        self.client_thread_.start()
+        self.read_thread = Thread(target=self.read_data_rt_client)
+        self.read_thread.daemon = True  # Make thread daemon so it exits when main thread exits
+        self.read_thread.start()
 
         rospy.on_shutdown(self.cleanup)
 

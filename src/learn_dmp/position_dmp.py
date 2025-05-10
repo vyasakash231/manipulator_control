@@ -15,7 +15,7 @@ class PositionDMP(DiscreteDMP):
 
     ####################################################################################################################################################
 
-    def learn_dynamics_1(self, X_des, V_des):
+    def learn_dynamics_1(self, X_des):
         """
         Takes in a desired trajectory and generates the set of system parameters that best realize this path.
         X_des: the desired trajectories of each DMP should be shaped [no_of_dmps, num_timesteps]
@@ -27,19 +27,17 @@ class PositionDMP(DiscreteDMP):
         t_des = np.linspace(0, self.cs.run_time, X_des.shape[1])  # demo trajectory timing
         std_time = np.linspace(0, self.cs.run_time, self.cs.time_steps)  # map demo timing to standard time
 
-        # --------------------------------  Using Vector ---------------------------------------
-        path_gen = scipy.interpolate.interp1d(t_des, X_des, kind="quadratic")
+        path = np.zeros((self.no_of_DMPs, self.cs.time_steps))
+        for i in range(self.no_of_DMPs):
+            path_gen = scipy.interpolate.interp1d(t_des, X_des[i,:], kind="quadratic")
+            for j in range(self.cs.time_steps):
+                path[i, j] = path_gen(j * self.cs.dt)
 
         # Evaluation of the interpolant
-        X_des = path_gen(std_time)  # [[x0,x1,x2....], [y0,y1,y2,....]] -> (3,N)
+        X_des = path(std_time)  # [[x0,x1,x2....], [y0,y1,y2,....]] -> (3,N)
 
-        # --------------------------------  Using Vector ---------------------------------------
-        # vel_gen = scipy.interpolate.interp1d(t_des, V_des, kind="quadratic")
-
-        # # Evaluation of the interpolant
-        # dX_des = vel_gen(std_time)   # [[dx0,dx1,dx2....], [dy0,dy1,dy2,....]] -> (3,N)
+        # calculate acceleration of y_des (gradient of dX_des is computed using second order accurate central differences)
         dX_des = np.gradient(X_des, self.cs.dt, axis=1, edge_order=2)  # (3,N)
-        # --------------------------------------------------------------------------------------
 
         # calculate acceleration of y_des (gradient of dX_des is computed using second order accurate central differences)
         ddX_des = np.gradient(dX_des, self.cs.dt, axis=1, edge_order=2)  # (3,N)

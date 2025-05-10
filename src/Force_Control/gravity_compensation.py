@@ -20,10 +20,8 @@ class GravityCompensation(Robot):
         # Initial estimated frictional torque
         self.fric_torques = np.zeros(self.n)
 
-        # self.J_m = np.diag([0.0004956, 0.0004956, 0.0001839, 0.00009901, 0.00009901, 0.00009901])
-        self.Ko = np.diag([0.1, 0.05, 0.125, 0.05, 0.1, 0.2])
-
-        self.activate_tool_compensation = True
+        # self.Ko = np.diag([0.1, 0.05, 0.125, 0.05, 0.1, 0.2])
+        self.Ko = np.diag([0.2, 0.1, 0.4, 0.1, 0.4, 0.5])
 
         self.filter = Filters()
 
@@ -105,20 +103,13 @@ class GravityCompensation(Robot):
     def calc_friction_torque(self):
         motor_torque = self.Robot_RT_State.actual_motor_torque
         joint_torque = self.Robot_RT_State.actual_joint_torque
-        q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs  # convert from deg/s to rad/s
-
-        term_1 = np.dot(self.Ko, (motor_torque - joint_torque - self.fric_torques)) * 0.005
-        self.fric_torques = self.fric_torques + term_1 
-
-        self.q_dot_prev = q_dot.copy()
+        self.fric_torques = self.Ko @ (motor_torque - joint_torque - self.fric_torques) 
 
     def run_controller(self):
-        self.q_dot_prev = self.Robot_RT_State.actual_joint_velocity_abs.copy() 
         rate = rospy.Rate(self.write_rate)
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
                 G_torques = self.Robot_RT_State.gravity_torque  # calculate gravitational torque in Nm
-                self.calc_friction_torque() #  estimate frictional torque in Nm
 
                 # position = self.Robot_RT_State.actual_tcp_position[:3].copy()    # (x, y, z) in mm
                 # orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())  # Convert angles from Euler ZYZ (in degrees) to quaternion        
@@ -128,6 +119,8 @@ class GravityCompensation(Robot):
                 # print(position, orientation)
                 # print(pose)
                 # print("===========================================================")
+
+                self.calc_friction_torque()  # Use the original method
                 
                 torque = G_torques + self.fric_torques 
                 writedata = TorqueRTStream()
@@ -145,6 +138,12 @@ class GravityCompensation(Robot):
             self.cleanup()
 
 if __name__ == "__main__":
+    # move to initial position first
+    p1= posj(0,0,90,0,90,0)  # posj(q1, q2, q3, q4, q5, q6) This function designates the joint space angle in degrees
+    movej(p1, vel=40, acc=20)
+
+    time.sleep(1.0)
+
     try:
         # Initialize ROS node first
         rospy.init_node('My_service_node')
@@ -160,12 +159,13 @@ if __name__ == "__main__":
         
         # Keep the main thread running for the plot
         while not rospy.is_shutdown():
-            plt.pause(0.1)  # This keeps the plot window responsive
+            plt.pause(0.01)  # This keeps the plot window responsive
             
     except rospy.ROSInterruptException:
         pass
     finally:
-        plt.close('all')  # Clean up plots on exit
+        # plt.close('all')  # Clean up plots on exit
+        pass
 
 
 
