@@ -13,18 +13,18 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from common_utils import Robot_KM
 from pose_transform import quat2mat, make_quat_continuity
-from scipy.linalg import logm
+
 
 class PlotData:
-    def __init__(self):
+    def __init__(self, demo_file_name, task_performed_name=None):
         # load demo data
-        self.load_demo(name='demo')
+        self.load_demo(name=demo_file_name)
 
         # Check if the file of performed task already exists, if it exists load the data.
         curr_dir=os.getcwd()
-        if os.path.exists(curr_dir + '/data/task_performed_2' + '.npz'):
+        if os.path.exists(curr_dir + f'/data/{task_performed_name}' + '.npz'):
             print("task_performed already exists.")
-            self.load_task_performed(name="task_performed_2")
+            self.load_task_performed(name=task_performed_name)
 
         # Modified-DH Parameters 
         self.DOF = 6
@@ -332,7 +332,7 @@ class PlotData:
         plt.show()
 
 if __name__ == "__main__":
-    plotter = PlotData()
+    plotter = PlotData(demo_file_name="demo_discrete", task_performed_name="task_performed_discrete")
     
     anim = plotter.setup_demo_plot()
     plotter.show()

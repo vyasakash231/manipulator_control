@@ -79,7 +79,7 @@ class DoosanRecord:
         print("Move robot to start recording.")
 
         # TO increase the amount of data collected, increase the frequency
-        rate = rospy.Rate(75)   # 25Hz = 40ms, 50Hz = 20ms
+        rate = rospy.Rate(50)   # 25Hz = 40ms, 50Hz = 20ms
         
         # observe small movement to start recoding
         while robot_perturbation < trigger:
@@ -125,7 +125,7 @@ class DoosanRecord:
             rospy.logerr(f"Error during shutdown: {e}")
         return
 
-    def save(self, name='demo_linear'):
+    def save(self, name='demo'):
         curr_dir=os.getcwd()
         np.savez(curr_dir+ '/data/' + str(name) + '.npz',
                 q=self.recorded_q,
@@ -149,6 +149,10 @@ class DoosanRecord:
 
 if __name__ == "__main__":
     # move to initial position first
+    """
+    for rhythmic motion, start position: 0,25,110,0,45,0
+    for discrete motion, start position: 0,0,90,0,90,0
+    """
     p1= posj(0,0,90,0,90,0)  # posj(q1, q2, q3, q4, q5, q6) This function designates the joint space angle in degrees
     movej(p1, vel=40, acc=20)
     
@@ -158,7 +162,7 @@ if __name__ == "__main__":
         controller = DoosanRecord()
         rospy.loginfo("Robot setup complete - Ready for manual demonstration")
         controller.traj_record()
-        controller.save(name="demo")
+        controller.save(name="demo")  # update file name before start recording
         # rospy.spin()
     except rospy.ROSInterruptException:
         pass

@@ -5,7 +5,7 @@ sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from basic_import import *
-from common_utils import rk4_step
+from common_utils import rk4_step, forward_euler
 from .discrete_dmp import DiscreteDMP
 
 
@@ -15,7 +15,7 @@ class PositionDMP(DiscreteDMP):
 
     ####################################################################################################################################################
 
-    def learn_dynamics_1(self, X_des):
+    def learn_dynamics(self, X_des):
         """
         Takes in a desired trajectory and generates the set of system parameters that best realize this path.
         X_des: the desired trajectories of each DMP should be shaped [no_of_dmps, num_timesteps]
@@ -25,31 +25,29 @@ class PositionDMP(DiscreteDMP):
         self.X_g = X_des[:,[-1]].copy()  # [[xn],[yn]]
 
         t_des = np.linspace(0, self.cs.run_time, X_des.shape[1])  # demo trajectory timing
-        std_time = np.linspace(0, self.cs.run_time, self.cs.time_steps)  # map demo timing to standard time
 
+        # -------------------- plot uniform trajectory from demo data --------------------
         path = np.zeros((self.no_of_DMPs, self.cs.time_steps))
         for i in range(self.no_of_DMPs):
             path_gen = scipy.interpolate.interp1d(t_des, X_des[i,:], kind="quadratic")
             for j in range(self.cs.time_steps):
-                path[i, j] = path_gen(j * self.cs.dt)
-
+                path[i, j] = path_gen(j * self.cs.dt)  # map demo timing to standard time
+        
         # Evaluation of the interpolant
-        X_des = path(std_time)  # [[x0,x1,x2....], [y0,y1,y2,....]] -> (3,N)
-
+        X_des = path # [[x0,x1,x2....], [y0,y1,y2,....]] -> (3,N)
+        # --------------------------------------------------------------------------------
+        
         # calculate acceleration of y_des (gradient of dX_des is computed using second order accurate central differences)
         dX_des = np.gradient(X_des, self.cs.dt, axis=1, edge_order=2)  # (3,N)
-
+        dX_des[:,0] = np.zeros(3)  # make initial velocity 0
+        
         # calculate acceleration of y_des (gradient of dX_des is computed using second order accurate central differences)
         ddX_des = np.gradient(dX_des, self.cs.dt, axis=1, edge_order=2)  # (3,N)
-       
+        ddX_des[:,0] = np.zeros(3)  # make initial acceleration 0
+
         theta_track = self.cs.rollout()
     
         ## Find the force required to move along this trajectory
-        """
-        this is equation (11) from paper,
-        D. -H. Park, H. Hoffmann, P. Pastor and S. Schaal, "Movement reproduction and obstacle avoidance with dynamic movement primitives and potential fields," 
-        Humanoids 2008 - 8th IEEE-RAS International Conference on Humanoid Robots, Daejeon, Korea (South), 2008, pp. 91-98, doi: 10.1109/ICHR.2008.4755937.        
-        """
         f_target = np.zeros([self.cs.time_steps, self.no_of_DMPs])
         for idx in range(self.no_of_DMPs):
             f_target[:,idx] = (ddX_des[idx,:] / self.K) - (self.X_g[idx] - X_des[idx,:]) + (self.D / self.K) * dX_des[idx,:] + (self.X_g[idx] - self.X_0[idx]) * theta_track  # (101,2)
@@ -57,8 +55,20 @@ class PositionDMP(DiscreteDMP):
         # generate weights to realize f_target
         self.generate_weights(f_target, theta_track)
         self.reset_state()
+
+    def rollout(self, X_d, gamma=1):
+        """Generate a system trial, no feedback is incorporated."""
+        self.reset_state()
+
+        # set up tracking vectors
+        y_track = np.zeros((self.no_of_DMPs, self.cs.time_steps))
+        dy_track = np.zeros((self.no_of_DMPs, self.cs.time_steps))
+      
+        for t in range(self.cs.time_steps):
+            y_track[:,[t]], dy_track[:,[t]] = self.step(X_d, gamma)   # run and record timestep
+        return y_track, dy_track
     
-    def step_1(self, X_g, gamma, tau=1):
+    def step(self, X_g, gamma=1, tau=1):
         """
         Based on eqn (1) from the paper, Learning and Generalization of Motor Skills by Learning from Demonstration
         DMP 2nd order system in vector form (for 3 DOF system);
@@ -119,8 +129,8 @@ class PositionDMP(DiscreteDMP):
         Y = Y + dY_dt * (gamma*self.cs.dt)
         
         # extract position-X, velocity-V, acceleration data from current state vector-Y values
-        self.X = Y[1::2, :]   # extract position data from state vector Y
         self.dX = Y[0::2, :] # extract velocity data from state vector Y
+        self.X = Y[1::2, :]   # extract position data from state vector Y
         
         self.cs.step(tau=tau)  # update theta
         return self.X, self.dX   

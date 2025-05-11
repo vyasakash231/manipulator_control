@@ -106,12 +106,25 @@ class OrientationDMP:
         u, v = q[:3], q[-1]
         u_norm = np.linalg.norm(u)
         
-        if u_norm < 1e-10:  # Almost zero
+        if u_norm < 1e-8:  # Almost zero
             return np.array([0, 0, 0])
         
         u_unit = u / u_norm
-        angle = np.arccos(v)
+        angle = np.arccos(np.clip(v, -1, 1))
         return angle * u_unit
+    
+    """from, eqn (13) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
+    def quaternion_exp(self, r):
+        r_norm = np.linalg.norm(r)
+        
+        if r_norm < 1e-8:  # Almost zero
+            return np.array([1, 0, 0, 0])
+
+        else:
+            r_unit = r / r_norm
+            u = np.sin(r_norm) * (r_unit)
+            v = np.cos(r_norm)
+            return np.append(u, v)
     
     """conjugate of quaternion q = [x, y, z, w] is q* = [-x, -y, -z, w]"""
     def quaternion_conjugate(self, q):
@@ -173,7 +186,7 @@ class OrientationDMP:
         """
         # generate Basis functions
         psi = self.gaussian_basis_func(theta_track)
-        
+     
         # scaling factor
         A = np.zeros_like(f_target)
         for i in range(f_target.shape[0]):

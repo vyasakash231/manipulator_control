@@ -33,7 +33,7 @@ class DiscreteDMP:
 
         self.K = K  # stiffness
         if D is None:
-            self.D = 2 * np.sqrt(self.K)  # damping 
+            self.D = 1.5 * np.sqrt(self.K)  # damping 
         else:
             self.D = D
 

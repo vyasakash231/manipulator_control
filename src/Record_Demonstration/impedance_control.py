@@ -8,16 +8,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from scipy.spatial.transform import Rotation
-# from scipy.signal import butter, filtfilt
-# from scipy.spatial.transform import Rotation, Slerp
-
-try:
-    from basic_import import *
-    from common_utils import Robot
-    from learn_dmp import PositionDMP, QuaternionDMP
-except ImportError:
-    rospy.logerr("Failed to import required modules. Check your ROS package setup.")
-    sys.exit(1)
+from basic_import import *
+from common_utils import Robot
+from learn_dmp import PositionDMP, QuaternionDMP
 
 
 class CartesianImpedanceControl(Robot):
@@ -48,61 +41,6 @@ class CartesianImpedanceControl(Robot):
         self.angular_velocity_demo = data['omega']   # shape: (N, 3), in rad/s
         # self.gripper = data['grip']
         self.N = self.position_demo.shape[0]   # no of sample points
-
-    #     # Apply filtering for smoother trajectories
-    #     self.filter_trajectory()
-
-    # def filter_trajectory(self):
-    #     """
-    #     Apply filtering to position, orientation and velocity data to ensure smooth trajectory
-    #     """
-    #     # Filter parameters
-    #     fs = 25.0  # Sample frequency (Hz)
-    #     cutoff = 5.0  # Cutoff frequency (Hz) - adjust as needed
-    #     order = 2  # Filter order
-        
-    #     # Create the filter
-    #     nyq = 0.5 * fs
-    #     normal_cutoff = cutoff / nyq
-    #     b, a = butter(order, normal_cutoff, btype='low', analog=False)
-        
-    #     # Apply filter to position data (each axis separately)
-    #     filtered_position = np.zeros_like(self.position_demo)
-    #     for i in range(3):
-    #         filtered_position[:, i] = filtfilt(b, a, self.position_demo[:, i])
-        
-    #     # Apply filter to linear velocity data
-    #     filtered_linear_vel = np.zeros_like(self.linear_velocity_demo)
-    #     for i in range(3):
-    #         filtered_linear_vel[:, i] = filtfilt(b, a, self.linear_velocity_demo[:, i])
-        
-    #     # Apply filter to angular velocity data
-    #     filtered_angular_vel = np.zeros_like(self.angular_velocity_demo)
-    #     for i in range(3):
-    #         filtered_angular_vel[:, i] = filtfilt(b, a, self.angular_velocity_demo[:, i])
-        
-    #     # Handle orientation (quaternions) - special care needed
-    #     # Simple filtering can break quaternion properties
-    #     filtered_orientation = np.zeros_like(self.orientation_demo)
-    #     filtered_orientation[0] = self.orientation_demo[0]  # Keep first quaternion as is
-        
-    #     # Create rotation objects and times
-    #     original_rotations = Rotation.from_quat(self.orientation_demo)
-    #     times = np.arange(len(self.orientation_demo))
-        
-    #     # Create Slerp object
-    #     slerp = Slerp(times, original_rotations)
-        
-    #     # Evaluate at the same times, but the interpolation has a smoothing effect
-    #     smoothed_rotations = slerp(times)
-    #     filtered_orientation = smoothed_rotations.as_quat()
-        
-    #     # Update trajectory data with filtered versions
-    #     self.position_demo = filtered_position
-    #     self.orientation_demo = filtered_orientation
-    #     self.linear_velocity_demo = filtered_linear_vel
-    #     self.angular_velocity_demo = filtered_angular_vel
-    #     print("Trajectory filtered for smoother motion")
 
     def store_data(self):
         pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
@@ -151,7 +89,6 @@ class CartesianImpedanceControl(Robot):
 
         # Calculate velocity error (current - desired)
         error_dot = current_velocity - desired_velocity
-        error_dot[3:] = 0
         return error_dot
 
     @property
@@ -239,7 +176,7 @@ class CartesianImpedanceControl(Robot):
         rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
         
         # Calculate time step between trajectory points (in seconds)
-        traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
+        traj_dt = 1.0/50.0  # 10Hz = 0.1s between points
 
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
@@ -316,7 +253,7 @@ class CartesianImpedanceControl(Robot):
         rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
         
         # Calculate time step between trajectory points (in seconds)
-        traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
+        traj_dt = 1.0/50.0  # 10Hz = 0.1s between points  -->  freq is same as demo collection frequency
 
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
@@ -394,35 +331,42 @@ class CartesianImpedanceControl(Robot):
     def run_dmp(self, K_trans, K_rot):
         self.start()
         self.set_compliance_parameters(K_trans, K_rot)
-        tau_task = np.zeros((6,1))
         error = np.zeros(6)
 
         rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
 
         # Calculate time step between trajectory points (in seconds)
-        traj_dt = 1.0/25.0  # 10Hz = 0.1s between points
+        traj_dt = 0.01  # 10Hz = 0.1s between points  -->  freq is different from demo collection freq
 
         # Start DMPS
-        position_dmp = PositionDMP(no_of_DMPs=3, no_of_basis_func=400, T=10, dt=traj_dt, K=10.0, alpha=1.0)
-        quaternion_dmp = QuaternionDMP(no_of_basis_func=40, T=10, dt=traj_dt, K=10.0, alpha=1.0)
+        position_dmp = PositionDMP(no_of_DMPs=3, no_of_basis_func=500, T=1, dt=traj_dt, K=10.0, alpha=1.0)
+        quaternion_dmp = QuaternionDMP(no_of_basis_func=500, T=1, dt=traj_dt, K=10.0, alpha=1.0)
 
         # learn Weights based on position Demo
         X_demo = 0.001 * self.position_demo.T   # demo position data of shape (3, N) in m
         V_demo = self.linear_velocity_demo.T   # demo velocity data of shape (3, N) in m
-        position_dmp.learn_dynamics_1(X_des=X_demo, V_des=V_demo)
+        position_dmp.learn_dynamics(X_des=X_demo)
         position_dmp.reset_state()
 
         # learn Weights based on orientation Demo
         Q_demo = self.orientation_demo.T   # orientation data of shape (4, N)
         omega_demo = self.angular_velocity_demo.T   # demo velocity data of shape (3, N) in m
-        quaternion_dmp.learn_dynamics_1(q_des=Q_demo, omega_des=omega_demo)
+        quaternion_dmp.learn_dynamics(q_des=Q_demo, omega_des=omega_demo)
         quaternion_dmp.reset_state()
+
+        X_goal = X_demo[:,[-1]]
+        Q_goal = Q_demo[:,[-1]]
+
+        X_track, dX_track = position_dmp.rollout(X_goal)
+        Q_track, omega_track = quaternion_dmp.rollout(Q_goal)
 
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
-        X_goal = X_demo[:,[-1]]
-        Q_goal = Q_demo[:,[-1]]
-        gamma = 1
+
+        # initial joint position and velocity
+        self.q = 0.0174532925 * self.Robot_RT_State.actual_joint_position_abs   # convert from deg to rad
+        self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
+
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
                 # Calculate elapsed time and determine trajectory index
@@ -437,37 +381,39 @@ class CartesianImpedanceControl(Robot):
                         rospy.loginfo("Trajectory complete and position error < 10mm")
                         break
 
-                # perform DMP step -> Update desired position and orientation
-                X_dmp, dX_dmp = position_dmp.step_1(X_goal, gamma)
-                self.position_des_next, self.desired_linear_vel = X_dmp.reshape(-1), dX_dmp.reshape(-1)
+                # Update desired position and orientation
+                self.position_des_next = X_track[:,current_idx]  # (x, y, z) in mm
+                self.orientation_des_next = Q_track[:,current_idx]
 
-                Q_dmp, omega_dmp = quaternion_dmp.step_1(Q_goal, gamma)
-                self.orientation_des_next, self.desired_angular_vel = Q_dmp.reshape(-1), omega_dmp.reshape(-1)
-                
-                # Find Jacobian matrix
-                self.J = self.Robot_RT_State.jacobian_matrix
+                # Get desired velocity from recorded data
+                self.desired_linear_vel = dX_track[:,current_idx]  # Already in m/s
+                self.desired_angular_vel = omega_track[:,current_idx]  # Already in rad/s
+
+                M = self.Robot_RT_State.mass_matrix
+                C = self.Robot_RT_State.coriolis_matrix
+                # self.J = self.Robot_RT_State.jacobian_matrix
+                self.J,_,_ = self.kinematic_model.Jacobian(self.q)
+                J_dot,_,_ = self.kinematic_model.Jacobian_dot(self.q, self.q_dot)
 
                 # define EE-Position & Orientation error in task-space
                 error[:3] = self.position_error
                 error[3:] = self.orientation_error
 
-                # # define EE-Velocitt error in task-space
+                # define EE-Velocitt error in task-space
                 velocity_error = self.velocity_error
 
-                # # Cartesian PD control with damping
-                self.impedance_force = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]
-                tau_task = - self.J[:3,:].T @ self.impedance_force[:3]
-                 
-                # # compute gravitational torque in Nm
+                # Cartesian PD control with damping
+                commanded_cartesian_acc = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]   # eqn (51-52) from the paper
+                joint_acc = - self.J_pinv(M) @ (commanded_cartesian_acc - J_dot @ self.q_dot[:,np.newaxis])  # eqn (49) from the paper
+
+                # compute gravitational torque in Nm
                 G_torque = self.Robot_RT_State.gravity_torque 
 
-                # # estimate frictional torque in Nm
+                # estimate frictional torque in Nm
                 self.calc_friction_torque()
 
-                # # Compute desired torque
-                tau_d = tau_task + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis] 
-
-                # print(tau_task.reshape(-1))
+                # Compute desired torque -> eqn (50) from the paper
+                tau_d = M @ joint_acc + C @ self.q_dot[:,np.newaxis] + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis]   
                 
                 # Saturate torque to avoid limit breach
                 tau_d = self.saturate_torque(tau_d)
@@ -477,15 +423,8 @@ class CartesianImpedanceControl(Robot):
                 writedata.time = 0.0    # target time [sec]
                 self.torque_publisher.publish(writedata)
 
-                # # store actual data for plotting
+                # store actual data for plotting
                 # self.store_data()
-
-                """
-                If the plant/Robot state drifts away from the state of the DMPs, we have to slow down the execution speed of the 
-                DMP to allow the plant time to catch up. To do this we just have to multiply the DMP timestep dt with gamma
-                """
-                #current_position = self.Robot_RT_State.actual_tcp_position[:3]   # (x, y, z) in mm
-                #gamma = 1 / (1 + LA.norm(self.position_des_next - current_position))
 
                 rate.sleep()
                 
@@ -494,7 +433,7 @@ class CartesianImpedanceControl(Robot):
         finally:
             self.cleanup()
 
-    def save(self, name='task_performed_2'):
+    def save(self, name='task_performed'):
         curr_dir=os.getcwd()
         np.savez(curr_dir + '/data/' + str(name) + '.npz',
                 traj=self.record_trajectory,

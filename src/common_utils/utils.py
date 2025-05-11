@@ -4,23 +4,22 @@ import numpy as np
 EPS = np.finfo(float).eps * 4.0
 
 
-def rk4_step(Y, A, B, dt):
+def rk4_step(Yn, A, B, dt):
     def f(Y):
         return A @ Y + B
 
-    k1 = f(Y)
-    k2 = f(Y + 0.5 * dt * k1)
-    k3 = f(Y + 0.5 * dt * k2)
-    k4 = f(Y + dt * k3)
+    k1 = f(Yn)
+    k2 = f(Yn + 0.5 * dt * k1)
+    k3 = f(Yn + 0.5 * dt * k2)
+    k4 = f(Yn + dt * k3)
     
     dY = (1 / 6) * (k1 + 2*k2 + 2*k3 + k4)
     return dY
 
-def forward_euler(Y, A, B, dt):
+def forward_euler(Yn, A, B, dt):
     def f(Y):
         return A @ Y + B
-
-    return f(Y)
+    return f(Yn)
 
 '''%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%'''
 
