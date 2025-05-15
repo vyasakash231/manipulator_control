@@ -33,7 +33,7 @@ class OrientationDMP:
 
         self.K = K   # stiffness
         if D is None:
-            self.D = 2 * np.sqrt(self.K)  # damping 
+            self.D = 2.0 * np.sqrt(self.K)  # damping 
         else:
             self.D = D
 
@@ -72,6 +72,13 @@ class OrientationDMP:
         h = np.reshape(self.width, [self.no_of_basis_func + 1, 1])
         Psi_basis_func = np.exp(-h * (theta - c)**2)
         return Psi_basis_func
+
+    def make_quat_continuity(self, quats):
+        R, C = quats.shape
+        for i in range(1, np.maximum(R, C)):
+            if np.dot(quats[:,i-1], quats[:,i]) < 0:  # Angle > 90 degrees
+                quats[:,i] = -quats[:,i]  # Flip to maintain continuity
+        return quats
     
     """from, eqn (10) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
     def quaternion_multiply(self, q1, q2):
@@ -89,9 +96,15 @@ class OrientationDMP:
         u2, v2 = q2[:3], q2[-1]
         
         # quaternion product => q1 * q2 = (v1 + u1) * (v2 + u2)
-        v = v1*v2 + np.dot(u1, u2)
+        v = v1*v2 - np.dot(u1, u2)
         u = v1*u2 + v2*u1 + np.cross(u1, u2)
-        return np.append(u, v)
+        q = np.append(u,v)
+
+        # Normalize to avoid numerical drift
+        q_norm = np.linalg.norm(q)
+        if q_norm > 0:
+            q = q / q_norm
+        return q
     
     """from, eqn (11) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
     def quaternion_logarithm(self, q):
@@ -106,25 +119,26 @@ class OrientationDMP:
         u, v = q[:3], q[-1]
         u_norm = np.linalg.norm(u)
         
-        if u_norm < 1e-8:  # Almost zero
+        if u_norm < 1e-10:  # Almost zero
             return np.array([0, 0, 0])
         
         u_unit = u / u_norm
-        angle = np.arccos(np.clip(v, -1, 1))
+        # angle = np.arccos(np.clip(v, -1, 1))
+        angle = 2 * np.arctan2(u_norm, v)
         return angle * u_unit
     
     """from, eqn (13) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
     def quaternion_exp(self, r):
         r_norm = np.linalg.norm(r)
         
-        if r_norm < 1e-8:  # Almost zero
-            return np.array([1, 0, 0, 0])
+        if r_norm < 1e-10:  # Almost zero
+            return np.array([0, 0, 0, 1])
 
-        else:
-            r_unit = r / r_norm
-            u = np.sin(r_norm) * (r_unit)
-            v = np.cos(r_norm)
-            return np.append(u, v)
+        r_unit = r / r_norm
+        u = np.sin(r_norm) * (r_unit)
+        v = np.cos(r_norm)
+        q = np.append(u, v)
+        return q
     
     """conjugate of quaternion q = [x, y, z, w] is q* = [-x, -y, -z, w]"""
     def quaternion_conjugate(self, q):
@@ -161,14 +175,14 @@ class OrientationDMP:
         Skew_omega = self.skew4x4(omega)
         return 0.5 * (Skew_omega @ q)
     
-    def D_inv(self, D):
+    def mat_inv(self, D):
         if abs(np.linalg.det(D)) >= 1e-4:  # This was calculated based on LU-Decomposition which is numerically not very stable
             return svd_solve(D)  # SVD is more numerically stable when dealing with matrices that might be ill-conditioned
         else:
             return np.linalg.pinv(D, rcond=1e-5)   
 
     """from, eqn (15) of Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
-    def generate_weights(self, f_target, theta_track, log_q):
+    def generate_weights(self, f_target, theta_track):
         """
         Generate a set of weights over the basis functions such that the target forcing 
         term trajectory is matched (f_target - f(θ), shape -> [3 x time_steps])
@@ -176,23 +190,27 @@ class OrientationDMP:
         f(θ) = D @ |--------------| * θ => D @ |--------------| * θ  
                     \   ∑ ψ(θ)   /              \   ∑ ψ(θ)   /       
         
-               /  ψ(θ)  \     
-        W.T @ |----------| * θ = D^(-1) @ f(θ) = A
-               \ ∑ ψ(θ) /            
+             /  ψ(θ)  \     
+        W @ |----------| * θ = D^(-1) @ f(θ) = A
+             \ ∑ ψ(θ) /            
                                  
-                  | /  ψ(θ)  \     |^(-1)
-        W = A.T @ ||----------| * θ|
-                  | \ ∑ ψ(θ) /     |
+                | /  ψ(θ)  \     |^(-1)
+        W = A @ ||----------| * θ|
+                | \ ∑ ψ(θ) /     |
         """
         # generate Basis functions
-        psi = self.gaussian_basis_func(theta_track)
+        psi = self.gaussian_basis_func(theta_track)  # (B,N)
+
+        q_conj = self.quaternion_conjugate(self.q_0)  # shape (4,)
+        q_product = self.quaternion_multiply(self.q_goal, q_conj)  # shape (4,)
+        log_q0 = self.quaternion_logarithm(q_product)  # shape (3,)
      
         # scaling factor
-        A = np.zeros_like(f_target)
-        for i in range(f_target.shape[0]):
-            D = np.diag(log_q[:,i])  # shape (3,3)
-            A[i,:] = (self.D_inv(D) @ f_target[[i],:].T).reshape(-1)
+        A = np.zeros_like(f_target)   # (3,N)
+        for i in range(f_target.shape[1]):
+            D = np.diag(log_q0)  # shape (3,3)
+            A[:,[i]] = self.mat_inv(D) @ f_target[:,[i]]
 
         # calculate basis function weights using "linear regression"
         sum_psi = np.sum(psi,0)
-        self.W = np.nan_to_num(A.T @ np.linalg.pinv((psi / sum_psi) * theta_track))   # (3, N) x (N, N+1)
+        self.W = np.nan_to_num(A @ np.linalg.pinv((psi / sum_psi) * theta_track))   # (3,B) = (3, N) x (N, B)

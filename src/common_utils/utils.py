@@ -6,7 +6,7 @@ EPS = np.finfo(float).eps * 4.0
 
 def rk4_step(Yn, A, B, dt):
     def f(Y):
-        return A @ Y + B
+        return (A @ Y) + B
 
     k1 = f(Yn)
     k2 = f(Yn + 0.5 * dt * k1)
@@ -18,7 +18,7 @@ def rk4_step(Yn, A, B, dt):
 
 def forward_euler(Yn, A, B, dt):
     def f(Y):
-        return A @ Y + B
+        return (A @ Y) + B
     return f(Yn)
 
 '''%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%'''

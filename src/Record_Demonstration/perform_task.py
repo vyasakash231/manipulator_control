@@ -53,8 +53,8 @@ try:
     task = CartesianImpedanceControl(file_name="demo_discrete")
     rospy.sleep(2.0)  # Give time for initialization
 
-    # Start controller in a separate thread   # 150.0, 15.0
-    controller_thread = Thread(target=task.run_controller_2, args=(100.0, 5.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
+    # Start controller in a separate thread   # 150.0, 15.0 for close trajectory
+    controller_thread = Thread(target=task.run_controller_2, args=(250.0, 25.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
     controller_thread.daemon = True
     controller_thread.start()
     
@@ -66,4 +66,5 @@ except rospy.ROSInterruptException:
     pass
 
 finally:
-    task.save(name="task_performed_discrete")  # save data for plotting
+    # task.save(name="task_performed_discrete")  # save data for plotting
+    pass

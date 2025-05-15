@@ -79,18 +79,24 @@ class DoosanRecord:
         print("Move robot to start recording.")
 
         # TO increase the amount of data collected, increase the frequency
-        rate = rospy.Rate(50)   # 25Hz = 40ms, 50Hz = 20ms
+        self.data_collection_freq = 60
+        rate = rospy.Rate(self.data_collection_freq)   # 25Hz = 40ms, 50Hz = 20ms
         
         # observe small movement to start recoding
         while robot_perturbation < trigger:
             robot_perturbation = np.sqrt((self.current_position[0] - init_pose[0])**2 + (self.current_position[1] - init_pose[1])**2 + (self.current_position[2] - init_pose[2])**2)
         
+        # At initialization
         self.recorded_q = self.q  # in rad
         self.recorded_q_dot = self.q_dot  # in rad/s
         self.recorded_trajectory = self.current_position  # in m
         self.recorded_orientation = self.current_quat  # quaternions
         self.recorded_linear_velocity = self.current_linear_vel  # in m/s
         self.recorded_angular_velocity = self.current_angular_vel  # in rad/s
+
+        self.start_time = time.time()  # Record start time once
+        self.recorded_time = np.array([0.0])  # Initialize with relative time 0
+
         # self.recorded_gripper = self.gripper_open_width
    
         while self.button:  # if the cockpit button is pressed
@@ -107,8 +113,14 @@ class DoosanRecord:
             self.recorded_orientation = np.vstack((self.recorded_orientation, self.current_quat))  # shape: (N, 4)
             self.recorded_linear_velocity = np.vstack((self.recorded_linear_velocity, self.current_linear_vel))  # shape: (N, 3)
             self.recorded_angular_velocity = np.vstack((self.recorded_angular_velocity, self.current_angular_vel))  # shape: (N, 3)
-            # self.recorded_gripper = np.vstack((self.recorded_gripper, self.grip_value))
+            print(self.current_angular_vel)
+            # Record relative time since start
+            current_time = time.time()
+            relative_time = current_time - self.start_time
+            self.recorded_time = np.vstack((self.recorded_time, relative_time))
 
+            # self.recorded_gripper = np.vstack((self.recorded_gripper, self.grip_value))
+            
             rate.sleep()
 
         # goal = np.concatenate((self.current_position, self.current_quat))
@@ -128,12 +140,14 @@ class DoosanRecord:
     def save(self, name='demo'):
         curr_dir=os.getcwd()
         np.savez(curr_dir+ '/data/' + str(name) + '.npz',
+                freq=self.data_collection_freq,
                 q=self.recorded_q,
                 q_dot=self.recorded_q_dot,
                 traj=self.recorded_trajectory,
                 ori=self.recorded_orientation,
                 vel=self.recorded_linear_velocity,
-                omega=self.recorded_angular_velocity
+                omega=self.recorded_angular_velocity,
+                time=self.recorded_time,
                 #  grip=self.recorded_gripper
                 )
 
@@ -162,7 +176,7 @@ if __name__ == "__main__":
         controller = DoosanRecord()
         rospy.loginfo("Robot setup complete - Ready for manual demonstration")
         controller.traj_record()
-        controller.save(name="demo")  # update file name before start recording
+        # controller.save(name="demo_discrete")  # update file name before start recording
         # rospy.spin()
     except rospy.ROSInterruptException:
         pass

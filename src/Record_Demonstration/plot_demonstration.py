@@ -332,10 +332,10 @@ class PlotData:
         plt.show()
 
 if __name__ == "__main__":
-    plotter = PlotData(demo_file_name="demo_discrete", task_performed_name="task_performed_discrete")
+    plotter = PlotData(demo_file_name="demo_discrete", task_performed_name="dmp_performed_discrete")
     
-    anim = plotter.setup_demo_plot()
-    plotter.show()
+    # anim = plotter.setup_demo_plot()
+    # plotter.show()
 
     anim = plotter.setup_performed_task_plot()
     plotter.show()

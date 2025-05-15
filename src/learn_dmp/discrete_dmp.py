@@ -33,11 +33,11 @@ class DiscreteDMP:
 
         self.K = K  # stiffness
         if D is None:
-            self.D = 1.5 * np.sqrt(self.K)  # damping 
+            self.D = 2.0 * np.sqrt(self.K)  # damping 
         else:
             self.D = D
 
-        self.cs = CanonicalSystem(dt=dt, alpha=alpha)  # setup a canonical system
+        self.cs = CanonicalSystem(dt=dt, alpha=alpha, run_time=T)  # setup a canonical system
 
         self.reset_state()  # set up the DMP system
 
@@ -79,21 +79,16 @@ class DiscreteDMP:
         """
         Generate a set of weights over the basis functions such that the target forcing 
         term trajectory is matched (f_target - f(θ), shape -> [no_of_DMPs x time_steps])
-                / ∑ W * ψ(θ) \          / W.T @ ψ(θ) \                /  ψ(θ)  \       
-        f(θ) = |--------------| * θ => |--------------| * θ => W.T @ |----------| * θ  
-                \   ∑ ψ(θ)   /          \   ∑ ψ(θ)   /                \ ∑ ψ(θ) /       
+                / ∑ w * ψ(θ) \          / W @ ψ(θ) \              /  ψ(θ)  \       
+        f(θ) = |--------------| * θ => |------------| * θ => W @ |----------| * θ  
+                \   ∑ ψ(θ)   /          \  ∑ ψ(θ)  /              \ ∑ ψ(θ) /       
         
-                     | /  ψ(θ)  \     |^(-1)
-        W = f(θ).T @ ||----------| * θ|
-                     | \ ∑ ψ(θ) /     |
+                   | /  ψ(θ)  \     |^(-1)
+        W = f(θ) @ ||----------| * θ|
+                   | \ ∑ ψ(θ) /     |
         """
-        # generate Basis functions
-        psi = self.gaussian_basis_func(theta_track)
+        psi = self.gaussian_basis_func(theta_track)  # generate Basis functions
         
         # calculate basis function weights using "linear regression"
         sum_psi = np.sum(psi,0)
-        self.W = np.nan_to_num(f_target.T @ np.linalg.pinv((psi / sum_psi) * theta_track))
-
-        for i in range(self.no_of_DMPs):
-            for j in range(self.no_of_basis_func):
-                pass
+        self.W = np.nan_to_num(f_target @ np.linalg.pinv((psi / sum_psi) * theta_track))  # (3,B) = (3, N) x (N, B)
