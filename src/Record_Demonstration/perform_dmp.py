@@ -8,7 +8,8 @@ sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
 from basic_import import *
-from impedance_control import CartesianImpedanceControl
+from Record_Demonstration.wrench_based_impedance_control import Wrench_CartesianImpedanceControl
+from Record_Demonstration.acceleration_based_impedance_control import Acceleration_CartesianImpedanceControl
 from learn_dmp import PositionDMP, QuaternionDMP
 
 # move to initial position first
@@ -23,11 +24,11 @@ try:
     rospy.init_node('My_service_node')
     
     # Create control object
-    task = CartesianImpedanceControl(file_name="demo_discrete")
+    task = Wrench_CartesianImpedanceControl(file_name="demo_discrete")
     rospy.sleep(2.0)  # Give time for initialization
 
     # Start controller in a separate thread
-    controller_thread = Thread(target=task.run_dmp, args=(250.0, 50.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
+    controller_thread = Thread(target=task.run_dmp, args=(750.0, 125.0)) # translation stiff -> N/m, rotational stiffness -> Nm/rad 
     controller_thread.daemon = True
     controller_thread.start()
     

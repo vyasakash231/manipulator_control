@@ -74,8 +74,8 @@ class PTC(Robot):
             self.q_dot_cov_demo = np.tile(self.Sigma_q_dot, (self.N, 1, 1))
 
     def store_data(self):
-        pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
-        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        pos = 0.001 * self.Robot_RT_State.actual_tcp_position_abs[:3]    # in m
+        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position_abs[3:])   # quaternions
         
         # Store position and orientation
         if not hasattr(self, 'record_trajectory'):
@@ -97,7 +97,7 @@ class PTC(Robot):
     @property
     def position_error(self):
         # actual robot flange position w.r.t. base coordinates: (x, y, z, a, b, c), where (a, b, c) follows Euler ZYZ notation [mm, deg]
-        current_position = self.Robot_RT_State.actual_tcp_position[:3]   #  (x, y, z) in mm
+        current_position = self.Robot_RT_State.actual_tcp_position_abs[:3]   #  (x, y, z) in mm
         return 0.001 * (current_position - self.position_des)  # convert from mm to m
     
     def saturate_torque(self, tau, tau_J_d):

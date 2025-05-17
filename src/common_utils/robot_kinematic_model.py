@@ -100,8 +100,6 @@ class Robot_KM:
 
     # only for Revolute joints
     def Hessian(self, theta):
-        theta = theta + self.offset
-
         """ 
         Hessian_v = [H_1; H_2; ... ; H_6] = [(nxn)_1; (nxn)_2; ... ; (nxn)_6], where, H_i -> ith stacks of (n,n) matrix,
         Eqn (37) from this paper - https://doi.org/10.1109/CIRA.2005.1554272

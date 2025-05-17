@@ -34,7 +34,7 @@ class GravityCompensation(Robot):
         Force_due_to_EE_weight = np.array([[0.0],[0.0],[m*g]])  # Fz = m x g = 2.25Kg x -9.81m/s^2
         F_E_E = self.filter.low_pass_filter_torque(np.array(self.Robot_RT_State.raw_force_torque))   # Wrench in EE frame
 
-        EE_pose = np.array(self.Robot_RT_State.actual_tcp_position)   #  (x, y, z, a, b, c) in mm, deg
+        EE_pose = np.array(self.Robot_RT_State.actual_tcp_position_abs)   #  (x, y, z, a, b, c) in mm, deg
         R_E_0 = self._euler2mat(EE_pose[3:])  # euler-angles in deg
         F_E_0 = R_E_0 @ F_E_E[:3][:,np.newaxis] - Force_due_to_EE_weight 
         M_E_0 = R_E_0 @ F_E_E[3:][:,np.newaxis] + np.cross(0.001*EE_pose[:3], F_E_0.reshape(-1))[:, np.newaxis]

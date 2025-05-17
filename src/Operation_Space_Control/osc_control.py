@@ -52,8 +52,8 @@ class OSC(Robot):
         self.N = self.position_demo.shape[0]   # no of sample points
 
     def store_data(self):
-        pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
-        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        pos = 0.001 * self.Robot_RT_State.actual_tcp_position_abs[:3]    # in m
+        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position_abs[3:])   # quaternions
         self.record_trajectory = np.vstack((self.record_trajectory, pos))  # shape: (N, 3) 
         self.record_orientation = np.vstack((self.record_orientation, orient))  # shape: (N, 4)
 
@@ -76,8 +76,8 @@ class OSC(Robot):
         self.angular_vel_des = None
 
         # for plotting
-        self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]   # in m
-        self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position_abs[:3]   # in m
+        self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position_abs[3:])   # quaternions
         self.record_motor_torque = self.Robot_RT_State.actual_motor_torque  # in Nm
         self.record_joint_torque = self.Robot_RT_State.actual_joint_torque  # in Nm
 
@@ -107,7 +107,7 @@ class OSC(Robot):
     @property
     def position_error(self):
         # actual robot flange position w.r.t. base coordinates: (x, y, z, a, b, c), where (a, b, c) follows Euler ZYZ notation [mm, deg]
-        current_position = self.Robot_RT_State.actual_tcp_position[:3]   #  (x, y, z) in mm
+        current_position = self.Robot_RT_State.actual_tcp_position_abs[:3]   #  (x, y, z) in mm
         return 0.001 * (current_position - self.position_des)  # convert from mm to m
     
     # @property
@@ -141,7 +141,7 @@ class OSC(Robot):
         For control purposes, the rotation vector components often provide a more useful error 
         signal that's proportional to the rotation needed
         """
-        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])
+        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position_abs[3:])
         
         if np.dot(current_orientation, self.orientation_des) < 0.0:
             current_orientation = -current_orientation

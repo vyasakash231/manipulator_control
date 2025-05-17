@@ -273,9 +273,9 @@ class PlotData:
         # Normalize quaternions to ensure they're on the unit hypersphere
         q_demo_norms = np.sqrt(self.orientation_demo[:,0]**2 + self.orientation_demo[:,1]**2 + self.orientation_demo[:,2]**2 + self.orientation_demo[:,3]**2)
        
-        qx_demo_norm = self.orientation_demo[:,0] / q_demo_norms
-        qy_demo_norm = self.orientation_demo[:,1] / q_demo_norms
-        qz_demo_norm = self.orientation_demo[:,2] / q_demo_norms
+        qx_demo_norm = -self.orientation_demo[:,0] / q_demo_norms
+        qy_demo_norm = -self.orientation_demo[:,1] / q_demo_norms
+        qz_demo_norm = -self.orientation_demo[:,2] / q_demo_norms
             
         # Plot the trajectory line
         ax.plot(qx_demo_norm, qy_demo_norm, qz_demo_norm, 'k-', linewidth=2.0)

@@ -155,11 +155,11 @@ def euler2mat(euler_angles):  # euler_angles in degrees
     The key difference is that intrinsic rotations are performed relative to the object's current orientation, 
     while extrinsic rotations are performed relative to the fixed global coordinate system.
     """
-    R = Rz1 @ Ry @ Rz2
+    R = Rz1 @ (Ry @ Rz2)
     return R
 
 def mat2quat(rmat):
-    M = np.asarray(rmat).astype(np.float32)[:3, :3]
+    M = np.asarray(rmat).astype(np.float64)[:3, :3]
 
     m00 = M[0, 0]
     m01 = M[0, 1]
@@ -173,9 +173,9 @@ def mat2quat(rmat):
 
     # symmetric matrix K
     K = np.array([
-                [m00 - m11 - m22, np.float32(0.0), np.float32(0.0), np.float32(0.0)],
-                [m01 + m10, m11 - m00 - m22, np.float32(0.0), np.float32(0.0)],
-                [m02 + m20, m12 + m21, m22 - m00 - m11, np.float32(0.0)],
+                [m00 - m11 - m22, np.float64(0.0), np.float64(0.0), np.float64(0.0)],
+                [m01 + m10, m11 - m00 - m22, np.float64(0.0), np.float64(0.0)],
+                [m02 + m20, m12 + m21, m22 - m00 - m11, np.float64(0.0)],
                 [m21 - m12, m02 - m20, m10 - m01, m00 + m11 + m22],
                 ])
     K /= 3.0
@@ -191,7 +191,7 @@ def mat2quat(rmat):
 
 def eul2quat(euler_angles):
     rmat = euler2mat(euler_angles)
-    M = np.asarray(rmat).astype(np.float32)
+    M = np.asarray(rmat).astype(np.float64)
     q = mat2quat(M)
     return q
 
@@ -210,7 +210,7 @@ def unit_vector(data, axis=None, out=None):
         None or np.array: If @out is not specified, will return normalized vector. Otherwise, stores the output in @out
     """
     if out is None:
-        data = np.array(data, dtype=np.float32, copy=True)
+        data = np.array(data, dtype=np.float64, copy=True)
         if data.ndim == 1:
             data /= sqrt(np.dot(data, data))
             return data

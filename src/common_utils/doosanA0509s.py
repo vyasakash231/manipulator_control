@@ -107,7 +107,7 @@ class Robot(ABC):
                 raise Exception("Failed to connect RT control")
             
             set_output_req = SetRTControlOutputRequest()
-            set_output_req.period = 0.001   # Communication Period (sec). Range: 0.001~1 [sec]
+            set_output_req.period = 0.005   # Communication Period (sec). Range: 0.001~1 [sec]
             set_output_req.loss = 4    # In succession, if the input data or the servo control command is lost due to over the set count, the real-time control connection is disconnected.
             set_output_response = self.set_rt_control_output(set_output_req)
             if not set_output_response.success:
@@ -164,7 +164,7 @@ class Robot(ABC):
 
     def read_data_rt_client(self):
         rate = rospy.Rate(self.read_rate)  # 3000 Hz
-        
+
         while not rospy.is_shutdown() and not self.shutdown_flag:
             try:
                 if not self.is_rt_connected:
@@ -200,9 +200,10 @@ class Robot(ABC):
         return mat2quat(M)
     
     def _eul2quat(self, euler_angles):
-        rmat = euler2mat(euler_angles)
-        M = np.asarray(rmat).astype(np.float32)
-        q = mat2quat(M)
+        # rmat = euler2mat(euler_angles)
+        # M = np.asarray(rmat).astype(np.float32)
+        # q = mat2quat(M)
+        q = Rotation.from_euler("ZYZ", euler_angles, degrees=True).as_quat()  # [x,y,z,w]
         return q
 
     def _quat_slerp(self, q1, q2, fraction):

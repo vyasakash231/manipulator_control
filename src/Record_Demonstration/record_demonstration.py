@@ -38,8 +38,8 @@ class DoosanRecord:
         self.get_buttons_service = rospy.ServiceProxy('/dsr01a0509/system/get_buttons_state', GetButtonsState)
         
         self.gripper_close_width = 0
-        self.gripper_open_width  = 0.06
-        self.gripper_sensitivity= 0.03
+        self.gripper_open_width  = 0.0
+        self.gripper_sensitivity= 0.0
 
     @property
     def button(self):
@@ -57,14 +57,15 @@ class DoosanRecord:
         self.q = 0.0174532925 * np.array(msg.current_posj)   # convert from deg to rad
         self.q_dot = 0.0174532925 * np.array(msg.current_velj)   # convert from deg/s to rad/s
         self.current_position = 0.001 * np.array(msg.current_posx)[:3]   # (x, y, z), converted from mm to m
-        self.current_euler = 0.0174532925 * np.array(msg.current_posx)[3:]   # (a, b, c) follows Euler ZYZ notation, convert from deg/s to rad/s
-        self.current_quat = eul2quat(np.array(msg.current_posx)[3:])   # orientation in quaternion
+        self.current_euler = 0.0174532925 * np.array(msg.current_posx)[3:]   # (a, b, c) follows Euler ZYZ notation, convert from deg to rad
+        # self.current_quat = eul2quat(np.array(msg.current_posx)[3:])   # orientation in quaternion
+        self.current_quat = Rotation.from_euler("ZYZ", np.array(msg.current_posx)[3:], degrees=True).as_quat()   # orientation in quaternion
         self.current_linear_vel = 0.001 * np.array(msg.current_velx)[:3]   # (Vx, Vy, Vz), convert from mm/s to m/s
         self.current_angular_vel = 0.0174532925 * np.array(msg.current_velx)[3:]   # (ωx, ωy, ωz), convert from deg/s to rad/s
 
     def traj_record(self, trigger=0.005):  # trigger is 5mm
         # Default is [500, 500, 500, 100, 100, 100] -> Reducing these values will make the robot more compliant
-        stiffness = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+        stiffness = [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
         self.set_stiffness(stiffness, 0, 0.0) 
         rospy.loginfo("Stiffness set successfully")
 
@@ -113,7 +114,7 @@ class DoosanRecord:
             self.recorded_orientation = np.vstack((self.recorded_orientation, self.current_quat))  # shape: (N, 4)
             self.recorded_linear_velocity = np.vstack((self.recorded_linear_velocity, self.current_linear_vel))  # shape: (N, 3)
             self.recorded_angular_velocity = np.vstack((self.recorded_angular_velocity, self.current_angular_vel))  # shape: (N, 3)
-            print(self.current_angular_vel)
+            
             # Record relative time since start
             current_time = time.time()
             relative_time = current_time - self.start_time
@@ -176,7 +177,7 @@ if __name__ == "__main__":
         controller = DoosanRecord()
         rospy.loginfo("Robot setup complete - Ready for manual demonstration")
         controller.traj_record()
-        # controller.save(name="demo_discrete")  # update file name before start recording
+        controller.save(name="demo_discrete")  # update file name before start recording
         # rospy.spin()
     except rospy.ROSInterruptException:
         pass

@@ -4,17 +4,13 @@ import sys
 sys.dont_write_bytecode = True
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
 
-# Import your custom modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),"../")))
-
-from scipy.spatial.transform import Rotation
 from basic_import import *
 from common_utils import Robot
 from learn_dmp import PositionDMP, QuaternionDMP
 from pose_transform import make_quat_continuity
 
 
-class CartesianImpedanceControl(Robot):
+class Acceleration_CartesianImpedanceControl(Robot):
     def __init__(self, file_name='demo'):
         self.shutdown_flag = False  
         self.file_name = file_name
@@ -46,8 +42,9 @@ class CartesianImpedanceControl(Robot):
         self.time = data['time']
 
     def store_data(self):
-        pos = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]    # in m
-        orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        pos = 0.001 * self.Robot_RT_State.actual_tcp_position_abs[:3]    # in m
+        # orient = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        orient = Rotation.from_euler("ZYZ", self.Robot_RT_State.actual_tcp_position_abs[3:], degrees=True).as_quat()   # quaternions
         self.record_trajectory = np.vstack((self.record_trajectory, pos))  # shape: (N, 3) 
         self.record_orientation = np.vstack((self.record_orientation, orient))  # shape: (N, 4)
 
@@ -61,71 +58,23 @@ class CartesianImpedanceControl(Robot):
         self.load_demo(name=self.file_name)
 
         # define desired pose => [x, y, z] & [q1, q2, q3, q0]
-        self.position_des_next = self.Robot_RT_State.actual_tcp_position[:3].copy()    # (x, y, z) in mm
-        self.orientation_des_next = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())    # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        self.position_des_next = self.Robot_RT_State.actual_tcp_position_abs[:3].copy()    # (x, y, z) in mm
+        # self.orientation_des_next = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:].copy())    # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        self.orientation_des_next = Rotation.from_euler("ZYZ", self.Robot_RT_State.actual_tcp_position_abs[3:].copy(), degrees=True).as_quat()    # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         # for plotting
-        self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position[:3]   # in m
-        self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_trajectory = 0.001 * self.Robot_RT_State.actual_tcp_position_abs[:3]   # in m
+        # self.record_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # quaternions
+        self.record_orientation = Rotation.from_euler("ZYZ", self.Robot_RT_State.actual_tcp_position_abs[3:], degrees=True).as_quat()   # quaternions
 
         self.record_motor_torque = self.Robot_RT_State.actual_motor_torque  # in Nm
         self.record_joint_torque = self.Robot_RT_State.actual_joint_torque  # in Nm
         self.record_imp_force = np.zeros(self.n)
         rospy.loginfo("CartesianImpedanceController: Controller started")
 
-    def quaternion_multiply(self, q1, q2):
-        """
-        Multiply two quaternions
-        q = [x, y, z, w] = (u + v)
-        where, u = [x, y, z], v = [w]
-        """
-        if q1.ndim == 2:
-            q1 = q1.reshape(-1)
-        if q2.ndim == 2:
-            q2 = q2.reshape(-1)
-        
-        u1, v1 = q1[:3], q1[-1]
-        u2, v2 = q2[:3], q2[-1]
-        
-        # quaternion product => q1 * q2 = (v1 + u1) * (v2 + u2)
-        v = v1*v2 + np.dot(u1, u2)
-        u = v1*u2 + v2*u1 + np.cross(u1, u2)
-        q = np.append(u,v)
-
-        # Normalize to avoid numerical drift
-        q_norm = np.linalg.norm(q)
-        if q_norm > 0:
-            result = q / q_norm
-        return result
-    
-    def quaternion_logarithm(self, q):
-        """ 
-        log(q) : S^3 → R^3 
-        q = [x, y, z, w] = (u + v)
-        where, u = [x, y, z], v = [w]
-        """
-        if q.ndim == 2:
-            q = q.reshape(-1)
-
-        u, v = q[:3], q[-1]
-        u_norm = np.linalg.norm(u)
-        
-        if u_norm < 1e-8:  # Almost zero
-            return np.array([0, 0, 0])
-        
-        u_unit = u / u_norm
-        angle = np.arccos(np.clip(v, -1, 1))
-        return angle * u_unit
-    
-    def quaternion_conjugate(self, q):
-        u, v = q[:3], q[-1]
-        return np.append(-u, v)  
-
     @property
     def current_velocity(self):
         X_dot = np.zeros(6)
-        self.q = 0.0174532925 * self.Robot_RT_State.actual_joint_position_abs   # convert from deg to rad
-        self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
         X_dot = self.J @ self.q_dot[:,np.newaxis]
         return X_dot.reshape(-1)   # in [m/s, rad/s]
         # X_dot[:3] = 0.001 * self.Robot_RT_State.actual_tcp_velocity[:3]
@@ -149,30 +98,31 @@ class CartesianImpedanceControl(Robot):
     @property
     def position_error(self):
         # actual robot flange position w.r.t. base coordinates: (x, y, z, a, b, c), where (a, b, c) follows Euler ZYZ notation [mm, deg]
-        current_position = self.Robot_RT_State.actual_tcp_position[:3]   # (x, y, z) in mm
+        current_position = self.Robot_RT_State.actual_tcp_position_abs[:3]   # (x, y, z) in mm
         return 0.001 * (current_position - self.position_des_next)   # convert from mm to m
     
     @property
     def orientation_error(self):
-        current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        # current_orientation = self._eul2quat(self.Robot_RT_State.actual_tcp_position_abs[3:])   # Convert angles from Euler ZYZ (in degrees) to quaternion        
+        current_orientation = Rotation.from_euler("ZYZ", self.Robot_RT_State.actual_tcp_position_abs[3:], degrees=True).as_quat()   # Convert angles from Euler ZYZ (in degrees) to quaternion        
 
         if np.dot(current_orientation, self.orientation_des_next) < 0.0:
             current_orientation = -current_orientation
         
-        current_rotation = Rotation.from_quat(current_orientation)  # default order: [x,y,z,w]
-        desired_rotation = Rotation.from_quat(self.orientation_des_next)  # default order: [x,y,z,w]
+        current_rotation = Rotation.from_quat(current_orientation)  # convert to rotation matrix from quaternion, default order: [x,y,z,w]
+        desired_rotation = Rotation.from_quat(self.orientation_des_next)  # convert to rotation matrix from quaternion, default order: [x,y,z,w]
         
-        # Compute the "difference" quaternion (q_error = q_current^-1 * q_desired)
-        """https://math.stackexchange.com/questions/3572459/how-to-compute-the-orientation-error-between-two-3d-coordinate-frames"""
+        # # Compute the "difference" quaternion (q_error = q_current^-1 * q_desired)
+        # """https://math.stackexchange.com/questions/3572459/how-to-compute-the-orientation-error-between-two-3d-coordinate-frames"""
         error_rotation = current_rotation.inv() * desired_rotation
         error_quat = error_rotation.as_quat()  # default order: [x,y,z,w]
         
         # Extract x, y, z components of error quaternion
-        rot_error = error_quat[:3][:, np.newaxis]
+        rot_error = error_quat[:3]
         
         # Transform orientation error to base frame
         current_rotation_matrix = current_rotation.as_matrix()  # Assuming this returns a 3x3 rotation matrix
-        rot_error = current_rotation_matrix @ rot_error
+        rot_error = current_rotation_matrix @ rot_error[:, np.newaxis]
         return rot_error.reshape(-1)
     
     """inertia weighted pseudo-inverse of Jacobian matrix"""
@@ -194,10 +144,8 @@ class CartesianImpedanceControl(Robot):
         
         # Update damping matrix (critically damped)
         self.D_cartesian = np.eye(6)
-        # self.D_cartesian[:3, :3] *= 1.5 * np.sqrt(translational_stiffness)
-        # self.D_cartesian[3:, 3:] *= 0.5 * np.sqrt(rotational_stiffness)
         self.D_cartesian[:3, :3] *= 2.0 * np.sqrt(translational_stiffness)
-        self.D_cartesian[3:, 3:] *= 0.5 * np.sqrt(rotational_stiffness)
+        self.D_cartesian[3:, 3:] *= 1.0 * np.sqrt(rotational_stiffness)
 
     def saturate_torque(self, tau):
         # Now apply peak torque limits based on Doosan A0509 specs
@@ -214,92 +162,8 @@ class CartesianImpedanceControl(Robot):
     def plot_data(self):
         pass
 
-    def calc_friction_torque(self):
-        motor_torque = self.Robot_RT_State.actual_motor_torque   # in Nm
-        joint_torque = self.Robot_RT_State.actual_joint_torque   # in Nm
-
-        term_1 = np.dot(self.Ko, (motor_torque - joint_torque - self.tau_f)) * 0.005
-        self.tau_f += term_1
-
-    def run_controller(self, K_trans, K_rot):
-        self.start()
-        self.set_compliance_parameters(K_trans, K_rot)
-        tau_task = np.zeros((6,1))
-        error = np.zeros(6)
-
-        rate = rospy.Rate(self.write_rate)  # 1000 Hz control rate
-        
-        # Calculate time step between trajectory points (in seconds)
-        traj_dt = 1.0/self.data_collect_freq  # 10Hz = 0.1s between points
-
-        # Track start time for trajectory indexing
-        start_time = rospy.Time.now().to_sec()
-
-        try:
-            while not rospy.is_shutdown() and not self.shutdown_flag:
-                # Calculate elapsed time and determine trajectory index
-                current_time = rospy.Time.now().to_sec()
-                elapsed_time = current_time - start_time
-                current_idx = int(elapsed_time / traj_dt)
-                
-                # Ensure index is within bounds
-                if current_idx >= self.N:
-                    current_idx = self.N - 1
-                    if current_idx == self.N - 1 and np.linalg.norm(self.position_error)*1000 < 10.0:  # if error is less then 10mm break
-                        rospy.loginfo("Trajectory complete and position error < 10mm")
-                        break
-
-                # Update desired position and orientation
-                self.position_des_next = self.position_demo[current_idx,:]  # (x, y, z) in mm
-                self.orientation_des_next = self.orientation_demo[current_idx,:]
-
-                # Get desired velocity from recorded data
-                self.desired_linear_vel = self.linear_velocity_demo[current_idx,:]  # Already in m/s
-                self.desired_angular_vel = self.angular_velocity_demo[current_idx,:]  # Already in rad/s
-
-                # Find Jacobian matrix
-                self.J = self.Robot_RT_State.jacobian_matrix
-
-                # define EE-Position & Orientation error in task-space
-                error[:3] = self.position_error
-                error[3:] = self.orientation_error
-
-                # define EE-Velocitt error in task-space
-                velocity_error = self.velocity_error
-
-                # Cartesian PD control with damping
-                self.impedance_force = self.K_cartesian @ error[:, np.newaxis] + self.D_cartesian @ velocity_error[:, np.newaxis]
-                tau_task = - self.J.T @ self.impedance_force
-                        
-                # compute gravitational torque in Nm
-                G_torque = self.Robot_RT_State.gravity_torque 
-
-                # estimate frictional torque in Nm
-                self.calc_friction_torque()
-
-                # Compute desired torque
-                tau_d = tau_task + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis] 
-                
-                # Saturate torque to avoid limit breach
-                tau_d = self.saturate_torque(tau_d)
-                
-                writedata = TorqueRTStream()
-                writedata.tor = tau_d.tolist()   # target motor torque [Nm]
-                writedata.time = 0.0    # target time [sec]
-                self.torque_publisher.publish(writedata)
-
-                # store actual data for plotting
-                self.store_data()
-
-                rate.sleep()
-                
-        except rospy.ROSInterruptException:
-            pass
-        finally:
-            self.cleanup()
-
     """Impedance control from the Appendix section of the paper, Adaptation of manipulation skills in physical contact with the environment to reference force profiles"""
-    def run_controller_2(self, K_trans, K_rot):
+    def run_controller(self, K_trans, K_rot):
         self.start()
         self.set_compliance_parameters(K_trans, K_rot)
         error = np.zeros(6)
@@ -312,10 +176,6 @@ class CartesianImpedanceControl(Robot):
         # Track start time for trajectory indexing
         start_time = rospy.Time.now().to_sec()
 
-        # initial joint position and velocity
-        self.q = 0.0174532925 * self.Robot_RT_State.actual_joint_position_abs   # convert from deg to rad
-        self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
-
         try:
             while not rospy.is_shutdown() and not self.shutdown_flag:
                 # Calculate elapsed time and determine trajectory index
@@ -338,9 +198,11 @@ class CartesianImpedanceControl(Robot):
                 self.desired_linear_vel = self.linear_velocity_demo[current_idx,:]  # Already in m/s
                 self.desired_angular_vel = self.angular_velocity_demo[current_idx,:]  # Already in rad/s
 
+                self.q = 0.0174532925 * self.Robot_RT_State.actual_joint_position_abs   # convert from deg to rad
+                self.q_dot = 0.0174532925 * self.Robot_RT_State.actual_joint_velocity_abs   # convert from deg/s to rad/s
+
                 M = self.Robot_RT_State.mass_matrix
                 C = self.Robot_RT_State.coriolis_matrix
-                # self.J = self.Robot_RT_State.jacobian_matrix
                 self.J,_,_ = self.kinematic_model.Jacobian(self.q)
                 J_dot,_,_ = self.kinematic_model.Jacobian_dot(self.q, self.q_dot)
 
@@ -358,18 +220,15 @@ class CartesianImpedanceControl(Robot):
                 # compute gravitational torque in Nm
                 G_torque = self.Robot_RT_State.gravity_torque 
 
-                # estimate frictional torque in Nm
-                self.calc_friction_torque()
-
                 # Compute desired torque -> eqn (50) from the paper
-                tau_d = M @ joint_acc + C @ self.q_dot[:,np.newaxis] + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis]   
+                tau_d = M @ joint_acc + C @ self.q_dot[:,np.newaxis] + G_torque[:, np.newaxis]
                 
                 # Saturate torque to avoid limit breach
                 tau_d = self.saturate_torque(tau_d)
                 
                 writedata = TorqueRTStream()
                 writedata.tor = tau_d.tolist()   # target motor torque [Nm]
-                writedata.time = 0.0    # target time [sec]
+                writedata.time = traj_dt    # target time [sec]
                 self.torque_publisher.publish(writedata)
 
                 # store actual data for plotting
@@ -427,15 +286,12 @@ class CartesianImpedanceControl(Robot):
 
                 M = self.Robot_RT_State.mass_matrix
                 C = self.Robot_RT_State.coriolis_matrix
-                # self.J = self.Robot_RT_State.jacobian_matrix
                 self.J,_,_ = self.kinematic_model.Jacobian(self.q)
                 J_dot,_,_ = self.kinematic_model.Jacobian_dot(self.q, self.q_dot)
 
                 # define EE-Position & Orientation error in task-space
                 error[:3] = self.position_error  # in m
                 error[3:] = self.orientation_error
-
-                print(np.linalg.norm(error[:3]), "in m")
 
                 # define EE-Velocitt error in task-space
                 velocity_error = self.velocity_error
@@ -447,11 +303,8 @@ class CartesianImpedanceControl(Robot):
                 # compute gravitational torque in Nm
                 G_torque = self.Robot_RT_State.gravity_torque 
 
-                # estimate frictional torque in Nm
-                self.calc_friction_torque()
-
                 # Compute desired torque -> eqn (50) from the paper
-                tau_d = M @ joint_acc + C @ self.q_dot[:,np.newaxis] + G_torque[:, np.newaxis] + self.tau_f[:, np.newaxis]   
+                tau_d = M @ joint_acc + C @ self.q_dot[:,np.newaxis] + G_torque[:, np.newaxis]
 
                 # Saturate torque to avoid limit breach
                 tau_d = self.saturate_torque(tau_d)
